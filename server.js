@@ -1384,4 +1384,15 @@ server.listen(PORT, () => {
     `);
 });
 
+const cors = require("cors");
+
+app.use(cors({
+  origin: [
+    "http://localhost:5173", 
+    "http://localhost:3000",
+    "https://goma-secures.vercel.app"
+  ],
+  credentials: true
+}));
+
 module.exports = { app, pool, io };
