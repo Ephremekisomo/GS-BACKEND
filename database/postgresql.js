@@ -32,7 +32,7 @@ async function initializeDatabase() {
                 telephone TEXT UNIQUE NOT NULL,
                 email TEXT UNIQUE,
                 password_hash TEXT NOT NULL,
-                role TEXT DEFAULT 'citoyen',
+                role TEXT DEFAULT 'citoyen' CHECK(role IN ('citoyen', 'admin', 'pompiers','police','protection civile','ambulance', 'centre_securite')),
                 quartier TEXT,
                 avenue TEXT,
                 photo_profil TEXT,

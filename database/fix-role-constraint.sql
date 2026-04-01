@@ -8,7 +8,7 @@ ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
 
 -- Add the new check constraint with correct role values
 ALTER TABLE users ADD CONSTRAINT users_role_check 
-    CHECK(role IN ('citoyen', 'admin', 'poste_securite', 'centre_securite'));
+    CHECK(role IN ('citoyen', 'admin', 'pompiers','police','protection civile','ambulance', 'centre_securite'));
 
 -- Verify the constraint was updated
 SELECT conname, pg_get_constraintdef(oid) 

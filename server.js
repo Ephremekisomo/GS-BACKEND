@@ -77,7 +77,7 @@ async function initializeDatabase() {
                 telephone TEXT UNIQUE NOT NULL,
                 email TEXT UNIQUE,
                 password_hash TEXT NOT NULL,
-                role TEXT DEFAULT 'citoyen' CHECK(role IN ('citoyen', 'admin', 'poste_securite', 'centre_securite')),
+                role TEXT DEFAULT 'citoyen' CHECK(role IN ('citoyen', 'admin', 'pompiers','police','protection civile','ambulance', 'centre_securite')),
                 quartier TEXT,
                 avenue TEXT,
                 photo_profil TEXT,
@@ -273,7 +273,7 @@ const uploadVoice = multer({
 // CONSTANTS
 // =====================
 
-const VALID_ROLES = ['citoyen', 'admin', 'poste_securite', 'centre_securite'];
+const VALID_ROLES = ['citoyen', 'admin', 'pompiers','police','protection civile','ambulance', 'centre_securite'];
 
 // =====================
 // AUTHENTICATION MIDDLEWARE

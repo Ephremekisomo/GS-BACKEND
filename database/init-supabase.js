@@ -52,7 +52,7 @@ async function initializeDatabase() {
                 telephone TEXT UNIQUE NOT NULL,
                 email TEXT UNIQUE,
                 password_hash TEXT NOT NULL,
-                role TEXT DEFAULT 'citoyen' CHECK(role IN ('citoyen', 'agent', 'admin', 'super_admin', 'centre_securite')),
+                role TEXT DEFAULT 'citoyen' CHECK(role IN ('citoyen', 'admin', 'pompiers','police','protection civile','ambulance', 'centre_securite')),
                 quartier TEXT,
                 avenue TEXT,
                 photo_profil TEXT,
@@ -463,7 +463,7 @@ async function initializeDatabase() {
         const agentPassword = bcrypt.hashSync('admin123', 10);
         await client.query(
             'INSERT INTO users (nom, prenom, telephone, email, password_hash, role, quartier, is_active) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING',
-            ['Agent', 'Test', '+243111111111', 'agent@gomasecurity.cd', agentPassword, 'agent', 'Centre-ville', 1]
+            ['Agent', 'Test', '+243111111111', 'agent@gomasecurity.cd', agentPassword, 'centre_securite', 'Centre-ville', 1]
         );
         
         // Citoyen de test

@@ -73,7 +73,7 @@ function fixRoleConstraint(pool) {
                 
                 -- Ajouter la nouvelle contrainte avec les bons rôles
                 ALTER TABLE users ADD CONSTRAINT users_role_check 
-                    CHECK(role IN ('citoyen', 'admin', 'poste_securite', 'centre_securite'));
+                    CHECK(role IN ('citoyen', 'admin', 'pompiers','police','protection civile','ambulance', 'centre_securite'));
                 RAISE NOTICE '✅ Nouvelle contrainte ajoutée';
             END $$;
         `;

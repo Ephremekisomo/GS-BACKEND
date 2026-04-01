@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT UNIQUE,
     password_hash TEXT NOT NULL,
     --role TEXT DEFAULT 'citoyen' CHECK(role IN ('citoyen', 'admin', 'poste_securite', 'security_center')),
-    role TEXT DEFAULT 'citoyen' CHECK(role IN ('citoyen', 'admin', 'poste_securite', 'centre_securite')),
+    role TEXT DEFAULT 'citoyen' CHECK(role IN ('citoyen', 'admin', 'pompiers','police','protection civile','ambulance', 'centre_securite')),
     quartier TEXT,
     avenue TEXT,
     photo_profil TEXT,
@@ -366,7 +366,7 @@ ON CONFLICT DO NOTHING;
 INSERT INTO users (nom, prenom, telephone, email, password_hash, role, quartier, is_active) VALUES
     ('Poste', 'Sécurité Test', '+243111111111', 'poste@gomasecurity.cd', 
      '$2a$10$rQZ8kHp0rVX1JcXxQz1ZxOQZ8kHp0rVX1JcXxQz1ZxOQZ8kHp0rVX', 
-     'poste_securite', 'Centre-ville', 1)
+     'centre_securite', 'Centre-ville', 1)
 ON CONFLICT DO NOTHING;
 
 -- Insérer un citoyen de test
