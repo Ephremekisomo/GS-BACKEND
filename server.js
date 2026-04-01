@@ -1167,13 +1167,14 @@ io.on('connection', (socket) => {
     socket.on('join-room', (room) => {
         socket.join(room);
     });
+
+    socket.on('ping-server', () => {
+        socket.emit('pong-server');
+    });
     
-    // Handle reinforcement call from poste
     socket.on('reinforcement-call', (data) => {
         console.log('Reinforcement call received:', data);
-        // Broadcast to all clients in security-center room
         io.to('security-center').emit('reinforcement-call', data);
-        // Also broadcast to all for debugging
         io.emit('reinforcement-call', data);
     });
 
