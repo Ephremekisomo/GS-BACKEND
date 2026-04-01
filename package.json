@@ -1,0 +1,55 @@
+{
+  "name": "goma-security-backend",
+  "version": "1.0.0",
+  "description": "Backend API pour l'application de securite urbaine de Goma, RDC",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "db:setup": "node database/setup.js",
+    "db:setup:postgresql": "node database/setup-postgresql.js",
+    "db:reset": "rm -f goma_security.db && node database/setup.js",
+    "db:reset:postgresql": "node database/setup-postgresql.js",
+    "db:backup": "node database/backup.js",
+    "db:backup:postgresql": "pg_dump -U postgres goma_security > backups/backup_$(date +%Y%m%d).sql",
+    "db:restore": "node database/restore.js",
+    "db:restore:postgresql": "psql -U postgres goma_security < backups/backup_$(date +%Y%m%d).sql",
+    "backup": "node scripts/backup.js"
+  },
+  "keywords": [
+    "security",
+    "emergency",
+    "goma",
+    "drc",
+    "api",
+    "backend"
+  ],
+  "author": "Goma Security Team",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.21.2",
+    "socket.io": "^4.7.2",
+    "pg": "^8.11.3",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "helmet": "^7.1.0",
+    "cors": "^2.8.5",
+    "body-parser": "^1.20.2",
+    "cookie-parser": "^1.4.7",
+    "compression": "^1.7.4",
+    "express-rate-limit": "^7.1.5",
+    "multer": "^1.4.5-lts.1",
+    "qrcode": "^1.5.3",
+    "speakeasy": "^2.0.0",
+    "web-push": "^3.6.7",
+    "dotenv": "^17.2.3",
+    "xlsx": "^0.18.5",
+    "jspdf": "^2.5.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
