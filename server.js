@@ -275,6 +275,16 @@ const uploadVoice = multer({
 
 const VALID_ROLES = ['citoyen', 'admin', 'pompiers','police','protection civile','ambulance', 'centre_securite'];
 
+const ROLE_REDIRECTS = {
+    'admin': '/admin.html',
+    'centre_securite': '/security-center.html',
+    'police': '/poste.html',
+    'pompiers': '/poste.html',
+    'protection civile': '/poste.html',
+    'ambulance': '/poste.html',
+    'citoyen': '/'
+};
+
 // =====================
 // AUTHENTICATION MIDDLEWARE
 // =====================
@@ -388,6 +398,7 @@ app.post('/api/auth/login', async (req, res) => {
         res.json({
             message: 'Connexion reussie',
             token,
+            redirectTo: ROLE_REDIRECTS[user.role] || '/',
             user: {
                 id: user.id,
                 nom: user.nom,
@@ -437,6 +448,7 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
         res.json({
             message: 'Connexion reussie',
             token,
+            redirectTo: ROLE_REDIRECTS[user.role] || '/',
             user: {
                 id: user.id,
                 nom: user.nom,
@@ -445,6 +457,23 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
                 role: user.role,
                 twoFaEnabled: user.two_fa_enabled === 1
             }
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+// Get role redirect URL
+app.get('/api/auth/role-redirect', authenticateToken, async (req, res) => {
+    try {
+        const result = await pool.query('SELECT role FROM users WHERE id = $1', [req.user.id]);
+        const user = result.rows[0];
+        if (!user) {
+            return res.status(404).json({ error: 'Utilisateur non trouve' });
+        }
+        res.json({
+            role: user.role,
+            redirectTo: ROLE_REDIRECTS[user.role] || '/'
         });
     } catch (error) {
         res.status(500).json({ error: 'Erreur serveur' });
@@ -1310,7 +1339,26 @@ app.put('/api/users/:id', authenticateToken, requireAdmin, async (req, res) => {
             'UPDATE users SET nom = $1, prenom = $2, email = $3, role = $4, quartier = $5 WHERE id = $6',
             [nom, prenom, email, role, quartier, userId]
         );
-        res.json({ message: 'Utilisateur mis a jour' });
+
+        const updatedUser = await pool.query(
+            'SELECT id, nom, prenom, telephone, email, role, quartier FROM users WHERE id = $1',
+            [userId]
+        );
+        const user = updatedUser.rows[0];
+
+        let newToken = null;
+        if (req.user.id == userId) {
+            newToken = jwt.sign(
+                { id: user.id, telephone: user.telephone, role: user.role },
+                process.env.JWT_SECRET || 'default_secret'
+            );
+        }
+
+        res.json({
+            message: 'Utilisateur mis a jour',
+            user,
+            ...(newToken && { token: newToken, redirectTo: ROLE_REDIRECTS[user.role] || '/' })
+        });
     } catch (error) {
         res.status(500).json({ error: 'Erreur de mise a jour' });
     }
