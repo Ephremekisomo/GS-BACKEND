@@ -50,10 +50,12 @@ const io = new Server(server, {
 
 // Configuration de la connexion PostgreSQL
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5432/goma_security',
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.NODE_ENV === 'production' 
+    ? { rejectUnauthorized: false } 
+    : false
 });
-
+const connectionString = process.env.DATABASE_URL;
 // Tester la connexion
 pool.on('connect', () => {
     console.log('Connecté à la base de données PostgreSQL');
@@ -1383,16 +1385,5 @@ server.listen(PORT, () => {
 ╚════════════════════════════════════════════════════════════╝
     `);
 });
-
-const cors = require("cors");
-
-app.use(cors({
-  origin: [
-    "http://localhost:5173", 
-    "http://localhost:3000",
-    "https://goma-secures.vercel.app"
-  ],
-  credentials: true
-}));
 
 module.exports = { app, pool, io };
