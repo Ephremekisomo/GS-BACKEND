@@ -912,10 +912,11 @@ app.get('/api/alerts', authenticateToken, requireAdminOrSecurityCenter, async (r
     try {
         const { status, priority, quartier } = req.query;
         
-        let query = `SELECT a.*, u.nom, u.prenom, u.telephone, et.nom as type_nom, et.icone, et.couleur
+        let query = `SELECT a.*, u.nom, u.prenom, u.telephone, et.nom as type_nom, et.icone, et.couleur, agent.role as assigned_role
                      FROM alerts a
                      JOIN users u ON a.user_id = u.id
                      JOIN emergency_types et ON a.type_id = et.id
+                     LEFT JOIN users agent ON a.assigned_to = agent.id
                      WHERE 1=1`;
         
         const params = [];
@@ -950,7 +951,34 @@ app.get('/api/alerts', authenticateToken, requireAdminOrSecurityCenter, async (r
 app.get('/api/alerts/poste/:posteId', async (req, res) => {
     try {
         const { posteId } = req.params;
-        
+
+        const posteToRole = {
+            'poste1': 'police',
+            'poste2': 'pompiers',
+            'poste3': 'ambulance',
+            'poste4': 'protection civile',
+            'poste5': 'police',
+            'poste6': 'centre_securite',
+            'poste7': 'admin',
+            'poste8': 'admin'
+        };
+
+        let assignedUserId = null;
+        const role = posteToRole[posteId];
+        if (role) {
+            const userResult = await pool.query(
+                'SELECT id FROM users WHERE role = $1 ORDER BY id ASC LIMIT 1',
+                [role]
+            );
+            if (userResult.rows.length > 0) {
+                assignedUserId = userResult.rows[0].id;
+            }
+        }
+
+        if (!assignedUserId) {
+            return res.json([]);
+        }
+
         const query = `SELECT a.*, u.nom, u.prenom, u.telephone, et.nom as type_nom, et.icone, et.couleur
                      FROM alerts a
                      JOIN users u ON a.user_id = u.id
@@ -958,7 +986,7 @@ app.get('/api/alerts/poste/:posteId', async (req, res) => {
                      WHERE a.assigned_to = $1
                      ORDER BY a.priority ASC, a.created_at DESC`;
 
-        const result = await pool.query(query, [posteId]);
+        const result = await pool.query(query, [assignedUserId]);
         res.json(result.rows || []);
     } catch (error) {
         res.status(500).json({ error: 'Erreur serveur' });
@@ -989,17 +1017,52 @@ app.put('/api/alerts/:id/status', authenticateToken, requireAdminOrSecurityCente
 app.put('/api/alerts/:id/assign', authenticateToken, requireAdminOrSecurityCenter, async (req, res) => {
     try {
         const { assigned_to } = req.body;
+        let assignedUserId = null;
+
+        if (assigned_to) {
+            if (Number.isInteger(assigned_to)) {
+                const userCheck = await pool.query('SELECT id FROM users WHERE id = $1', [assigned_to]);
+                if (userCheck.rows.length > 0) {
+                    assignedUserId = assigned_to;
+                }
+            } else {
+                const posteToRole = {
+                    'poste1': 'police',
+                    'poste2': 'pompiers',
+                    'poste3': 'ambulance',
+                    'poste4': 'protection civile',
+                    'poste5': 'police',
+                    'poste6': 'centre_securite',
+                    'poste7': 'admin',
+                    'poste8': 'admin',
+                    'police': 'police',
+                    'pompiers': 'pompiers',
+                    'ambulance': 'ambulance',
+                    'protection civile': 'protection civile',
+                    'centre_securite': 'centre_securite'
+                };
+
+                const role = posteToRole[assigned_to] || assigned_to;
+                const userResult = await pool.query(
+                    'SELECT id FROM users WHERE role = $1 ORDER BY id ASC LIMIT 1',
+                    [role]
+                );
+                if (userResult.rows.length > 0) {
+                    assignedUserId = userResult.rows[0].id;
+                }
+            }
+        }
 
         await pool.query(
             'UPDATE alerts SET assigned_to = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-            [assigned_to, req.params.id]
+            [assignedUserId, req.params.id]
         );
-        
-        // Emit assignment update to all clients
-        io.emit('alert-updated', { id: parseInt(req.params.id), assigned_to });
-        
-        res.json({ message: 'Alerte assignee' });
+
+        io.emit('alert-updated', { id: parseInt(req.params.id), assigned_to: assignedUserId });
+
+        res.json({ message: 'Alerte assignee', assigned_to: assignedUserId });
     } catch (error) {
+        console.error('Assign error:', error);
         res.status(500).json({ error: 'Erreur lors de l\'assignation' });
     }
 });
