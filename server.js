@@ -36,8 +36,13 @@ const server = http.createServer(app);
 // Initialize Socket.IO
 const io = new Server(server, {
     cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
+        origin: [
+            "http://localhost:5173",
+            "http://localhost:3000",
+            "https://gomasecures.vercel.app"
+        ],
+        methods: ["GET", "POST"],
+        credentials: true
     }
 });
 
@@ -201,9 +206,22 @@ initializeDatabase();
 // =====================
 
 app.use(helmet({
-    contentSecurityPolicy: false
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    crossOriginEmbedderPolicy: false
 }));
-app.use(cors());
+
+app.use(cors({
+    origin: [
+        'http://localhost:5173',
+        'http://localhost:3000',
+        'https://gomasecures.vercel.app'
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
+}));
+
 app.use(compression());
 app.use(bodyParser.json({ limit: '10mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
@@ -229,7 +247,15 @@ const authLimiter = rateLimit({
 // Static files
 // app.use(express.static(path.join(__dirname, '..', 'frontend', 'public')));
 
-// Serve uploaded files
+// Serve uploaded files with proper headers for media/audio
+app.use('/uploads', (req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
+    res.setHeader('Accept-Ranges', 'bytes');
+    next();
+});
+
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // File upload configuration
@@ -689,7 +715,7 @@ app.post('/api/chat/messages', authenticateToken, async (req, res) => {
 });
 
 // Send voice message (citizen)
-app.post('/api/chat/voice', uploadVoice.single('audio'), async (req, res) => {
+app.post('/api/chat/voice', authenticateToken, uploadVoice.single('audio'), async (req, res) => {
     try {
         console.log('Voice upload request received');
         console.log('File:', req.file);
@@ -698,15 +724,8 @@ app.post('/api/chat/voice', uploadVoice.single('audio'), async (req, res) => {
         if (!req.file) {
             return res.status(400).json({ error: 'Audio requis' });
         }
-        
-        // Get token from header
-        const token = req.headers['authorization']?.split(' ')[1];
-        if (!token) {
-            return res.status(401).json({ error: 'Authentification requise' });
-        }
-        
-        // Verify token
-        const user = jwt.verify(token, process.env.JWT_SECRET || 'default_secret');
+
+        const user = req.user;
         
         const audioPath = '/uploads/voices/' + path.basename(req.file.path);
         const message = '[Message vocal]';
@@ -863,6 +882,8 @@ app.delete('/api/chat/admin/messages/:id', authenticateToken, requireAdminOrSecu
         res.status(500).json({ error: 'Erreur lors de la suppression' });
     }
 });
+
+
 
 // Get users who have sent chat messages (admin)
 app.get('/api/chat/users', authenticateToken, requireAdminOrSecurityCenter, async (req, res) => {
