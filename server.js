@@ -209,13 +209,22 @@ app.use(bodyParser.json({ limit: '10mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
-// Rate limiting
-const limiter = rateLimit({
-    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
-    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 1000,
-    message: { error: 'Trop de requetes, veuillez reessayer plus tard.' }
+// Rate limiting - global (permissive for authenticated users)
+const globalLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 500,
+    message: { error: 'Trop de requetes, veuillez reessayer dans une minute.' }
 });
-app.use(limiter);
+app.use(globalLimiter);
+
+// Rate limiting - strict for auth endpoints (anti brute-force)
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 20, // 20 login attempts per 15 min
+    message: { error: 'Trop de tentatives de connexion, veuillez reessayer dans 15 minutes.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
 
 // Static files
 // app.use(express.static(path.join(__dirname, '..', 'frontend', 'public')));
@@ -328,7 +337,7 @@ const validateRole = (role) => {
 // =====================
 
 // Register
-app.post('/api/auth/register', upload.single('photo'), async (req, res) => {
+app.post('/api/auth/register', authLimiter, upload.single('photo'), async (req, res) => {
     try {
         const { nom, prenom, telephone, email, password, quartier, avenue, latitude, longitude } = req.body;
         
@@ -365,7 +374,7 @@ app.post('/api/auth/register', upload.single('photo'), async (req, res) => {
 });
 
 // Login
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', authLimiter, async (req, res) => {
     try {
         const { telephone, password } = req.body;
 
@@ -414,7 +423,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // Verify 2FA
-app.post('/api/auth/verify-2fa', async (req, res) => {
+app.post('/api/auth/verify-2fa', authLimiter, async (req, res) => {
     try {
         const { tempToken, code } = req.body;
 
