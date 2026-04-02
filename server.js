@@ -660,7 +660,7 @@ app.post('/api/chat/messages', authenticateToken, async (req, res) => {
         // Get admin user id if no receiver specified
         let receiverId = receiver_id;
         if (!receiverId) {
-            const adminResult = await pool.query('SELECT id FROM users WHERE role = $1 LIMIT 1', ['admin']);
+            const adminResult = await pool.query('SELECT id FROM users WHERE role IN ($1, $2) LIMIT 1', ['admin', 'centre_securite']);
             if (adminResult.rows.length === 0) {
                 return res.status(500).json({ error: 'Admin non trouve' });
             }
@@ -712,7 +712,7 @@ app.post('/api/chat/voice', uploadVoice.single('audio'), async (req, res) => {
         const message = '[Message vocal]';
         
         // Get admin user id
-        const adminResult = await pool.query("SELECT id FROM users WHERE role = 'admin' LIMIT 1");
+        const adminResult = await pool.query("SELECT id FROM users WHERE role IN ('admin', 'centre_securite') LIMIT 1");
         if (adminResult.rows.length === 0) {
             return res.status(500).json({ error: 'Admin non trouve' });
         }
@@ -899,8 +899,8 @@ app.get('/api/chat/messages/:userId', authenticateToken, requireAdminOrSecurityC
             `SELECT cm.*, 
                 CASE WHEN cm.is_from_admin = 1 THEN 'admin' ELSE 'citizen' END as sender_type
             FROM chat_messages cm
-            WHERE (cm.sender_id = $1 AND cm.receiver_id = (SELECT id FROM users WHERE role = 'admin' LIMIT 1))
-               OR (cm.sender_id = (SELECT id FROM users WHERE role = 'admin' LIMIT 1) AND cm.receiver_id = $2)
+            WHERE (cm.sender_id = $1 AND cm.receiver_id IN (SELECT id FROM users WHERE role IN ('admin', 'centre_securite')))
+               OR (cm.sender_id IN (SELECT id FROM users WHERE role IN ('admin', 'centre_securite')) AND cm.receiver_id = $2)
             ORDER BY cm.created_at ASC`,
             [userId, userId]
         );
