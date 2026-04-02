@@ -636,17 +636,11 @@ app.delete('/api/alerts/:id', authenticateToken, async (req, res) => {
 // Get chat messages (for citizen: get messages between user and admin)
 app.get('/api/chat/messages', authenticateToken, async (req, res) => {
     try {
-        // Get admin user id
-        const adminResult = await pool.query('SELECT id FROM users WHERE role = $1 LIMIT 1', ['admin']);
-        const adminId = adminResult.rows.length > 0 ? adminResult.rows[0].id : null;
-        
-        // Get messages between user and admin
         const result = await pool.query(
             `SELECT * FROM chat_messages 
-             WHERE (sender_id = $1 AND receiver_id = $2) 
-                OR (sender_id = $3 AND receiver_id = $4)
+             WHERE sender_id = $1 OR receiver_id = $1
              ORDER BY created_at ASC`,
-            [req.user.id, adminId, adminId, req.user.id]
+            [req.user.id]
         );
         res.json(result.rows || []);
     } catch (error) {
