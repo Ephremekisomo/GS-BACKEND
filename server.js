@@ -770,7 +770,7 @@ app.delete('/api/chat/messages/:id', authenticateToken, async (req, res) => {
 });
 
 // Get all chat messages (admin only)
-app.get('/api/chat/all', authenticateToken, requireAdmin, async (req, res) => {
+app.get('/api/chat/all', authenticateToken, requireAdminOrSecurityCenter, async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT cm.*, u.nom as sender_nom, u.prenom as sender_prenom
@@ -786,7 +786,7 @@ app.get('/api/chat/all', authenticateToken, requireAdmin, async (req, res) => {
 });
 
 // Send message from admin
-app.post('/api/chat/admin/send', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/chat/admin/send', authenticateToken, requireAdminOrSecurityCenter, async (req, res) => {
     try {
         const { user_id, message } = req.body;
         
@@ -817,7 +817,7 @@ app.post('/api/chat/admin/send', authenticateToken, requireAdmin, async (req, re
 });
 
 // Send voice message from admin
-app.post('/api/chat/admin/voice', authenticateToken, requireAdmin, uploadVoice.single('audio'), async (req, res) => {
+app.post('/api/chat/admin/voice', authenticateToken, requireAdminOrSecurityCenter, uploadVoice.single('audio'), async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'Audio requis' });
@@ -855,7 +855,7 @@ app.post('/api/chat/admin/voice', authenticateToken, requireAdmin, uploadVoice.s
 });
 
 // Delete chat message (admin can delete any message)
-app.delete('/api/chat/admin/messages/:id', authenticateToken, requireAdmin, async (req, res) => {
+app.delete('/api/chat/admin/messages/:id', authenticateToken, requireAdminOrSecurityCenter, async (req, res) => {
     try {
         const messageId = parseInt(req.params.id);
         
@@ -871,7 +871,7 @@ app.delete('/api/chat/admin/messages/:id', authenticateToken, requireAdmin, asyn
 });
 
 // Get users who have sent chat messages (admin)
-app.get('/api/chat/users', authenticateToken, requireAdmin, async (req, res) => {
+app.get('/api/chat/users', authenticateToken, requireAdminOrSecurityCenter, async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT DISTINCT 
@@ -897,7 +897,7 @@ app.get('/api/chat/users', authenticateToken, requireAdmin, async (req, res) => 
 });
 
 // Get messages for a specific user (admin)
-app.get('/api/chat/messages/:userId', authenticateToken, requireAdmin, async (req, res) => {
+app.get('/api/chat/messages/:userId', authenticateToken, requireAdminOrSecurityCenter, async (req, res) => {
     try {
         const userId = parseInt(req.params.userId);
         
