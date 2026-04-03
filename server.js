@@ -1032,6 +1032,18 @@ app.put('/api/alerts/:id/status', authenticateToken, requireAdminOrSecurityCente
         // Trim and validate status
         if (status) {
             status = status.trim().toLowerCase();
+            
+            // Convert frontend values to database values
+            const statusMap = {
+                'en_cours': 'in_progress',
+                'en cours': 'in_progress',
+                'resolu': 'resolved',
+                'résolu': 'resolved'
+            };
+            
+            if (statusMap[status]) {
+                status = statusMap[status];
+            }
         }
         
         const validStatuses = ['active', 'in_progress', 'resolved', 'cancelled', 'false_alarm'];
