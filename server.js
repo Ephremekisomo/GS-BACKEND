@@ -1027,7 +1027,17 @@ app.get('/api/alerts/poste/:posteId', async (req, res) => {
 app.put('/api/alerts/:id/status', authenticateToken, requireAdminOrSecurityCenter, async (req, res) => {
     try {
         const { status } = req.body;
-        const alertId = req.params.id;
+        const alertId = parseInt(req.params.id);
+        
+        if (!status) {
+            return res.status(400).json({ error: 'Status requis' });
+        }
+
+        // Check if alert exists
+        const alertCheck = await pool.query('SELECT id FROM alerts WHERE id = $1', [alertId]);
+        if (alertCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Alerte non trouvee' });
+        }
 
         await pool.query(
             `UPDATE alerts SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
@@ -1039,6 +1049,7 @@ app.put('/api/alerts/:id/status', authenticateToken, requireAdminOrSecurityCente
 
         res.json({ message: 'Statut mis a jour' });
     } catch (error) {
+        console.error('Error updating alert status:', error);
         res.status(500).json({ error: 'Erreur lors de la mise a jour' });
     }
 });
