@@ -576,13 +576,13 @@ app.post('/api/alerts', authenticateToken, upload.single('photo'), async (req, r
             return res.status(400).json({ error: 'Latitude et longitude requis' });
         }
 
-        // If accuracy is provided and is too high (more than 15 meters), require re-geolocation
-        if (accuracy && parseFloat(accuracy) > 15) {
+        // If accuracy is provided and is too high (more than 50 meters), require re-geolocation
+        if (accuracy && parseFloat(accuracy) > 50) {
             return res.status(400).json({ 
                 error: 'Precision geographique insuffisante. Veuillez activer votre GPS et reessayer.',
                 requiresHighAccuracy: true,
                 currentAccuracy: parseFloat(accuracy),
-                requiredAccuracy: 15
+                requiredAccuracy: 50
             });
         }
 
