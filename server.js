@@ -565,6 +565,70 @@ app.get('/api/emergency-types', async (req, res) => {
     }
 });
 
+// Create emergency type (admin only)
+app.post('/api/emergency-types', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const { nom, icone, couleur, priorite, description } = req.body;
+        
+        if (!nom || !icone || !couleur) {
+            return res.status(400).json({ error: 'Nom, icone et couleur requis' });
+        }
+
+        const result = await pool.query(
+            `INSERT INTO emergency_types (nom, icone, couleur, priorite, description)
+             VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+            [nom, icone, couleur, priorite || 3, description]
+        );
+
+        res.status(201).json({ message: 'Type d\'urgence cree', type: result.rows[0] });
+    } catch (error) {
+        if (error.code === '23505') {
+            return res.status(400).json({ error: 'Ce type d\'urgence existe deja' });
+        }
+        res.status(500).json({ error: 'Erreur lors de la creation' });
+    }
+});
+
+// Update emergency type (admin only)
+app.put('/api/emergency-types/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const typeId = parseInt(req.params.id);
+        const { nom, icone, couleur, priorite, description } = req.body;
+
+        const result = await pool.query(
+            `UPDATE emergency_types SET nom = $1, icone = $2, couleur = $3, priorite = $4, description = $5
+             WHERE id = $6 RETURNING *`,
+            [nom, icone, couleur, priorite, description, typeId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Type d\'urgence non trouve' });
+        }
+
+        res.json({ message: 'Type d\'urgence mis a jour', type: result.rows[0] });
+    } catch (error) {
+        res.status(500).json({ error: 'Erreur lors de la mise a jour' });
+    }
+});
+
+// Delete emergency type (admin only)
+app.delete('/api/emergency-types/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const typeId = parseInt(req.params.id);
+
+        // Check if type is used by any alerts
+        const checkResult = await pool.query('SELECT COUNT(*) as count FROM alerts WHERE type_id = $1', [typeId]);
+        if (parseInt(checkResult.rows[0].count) > 0) {
+            return res.status(400).json({ error: 'Ce type d\'urgence est utilise par des alertes. Impossible de le supprimer.' });
+        }
+
+        await pool.query('DELETE FROM emergency_types WHERE id = $1', [typeId]);
+        res.json({ message: 'Type d\'urgence supprime' });
+    } catch (error) {
+        res.status(500).json({ error: 'Erreur lors de la suppression' });
+    }
+});
+
 // Create alert
 app.post('/api/alerts', authenticateToken, upload.single('photo'), async (req, res) => {
     try {
