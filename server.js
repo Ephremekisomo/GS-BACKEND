@@ -571,6 +571,30 @@ app.post('/api/alerts', authenticateToken, upload.single('photo'), async (req, r
         const { type_id, description, latitude, longitude, accuracy, address, quartier, avenue, priority } = req.body;
         const photo = req.file ? '/uploads/profiles/' + req.file.filename : null;
 
+        // Validate geolocation accuracy - must be 15 meters or less for emergency alerts
+        if (!latitude || !longitude) {
+            return res.status(400).json({ error: 'Latitude et longitude requis' });
+        }
+
+        // If accuracy is provided and is too high (more than 15 meters), require re-geolocation
+        if (accuracy && parseFloat(accuracy) > 15) {
+            return res.status(400).json({ 
+                error: 'Precision geographique insuffisante. Veuillez activer votre GPS et reessayer.',
+                requiresHighAccuracy: true,
+                currentAccuracy: parseFloat(accuracy),
+                requiredAccuracy: 15
+            });
+        }
+
+        // Validate coordinates are within reasonable bounds (Goma, RDC area)
+        const lat = parseFloat(latitude);
+        const lng = parseFloat(longitude);
+        
+        // Goma, DRC bounds: approximately -1.5 to -2.0 latitude, 29.0 to 29.5 longitude
+        if (lat < -2.5 || lat > -1.0 || lng < 28.5 || lng > 30.0) {
+            return res.status(400).json({ error: 'Position invalide. Vous semblez etre hors de la zone de Goma.' });
+        }
+
         const insertResult = await pool.query(
             `INSERT INTO alerts (user_id, type_id, description, latitude, longitude, accuracy, address, quartier, avenue, photo, priority)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
