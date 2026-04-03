@@ -576,14 +576,9 @@ app.post('/api/alerts', authenticateToken, upload.single('photo'), async (req, r
             return res.status(400).json({ error: 'Latitude et longitude requis' });
         }
 
-        // If accuracy is provided and is too high (more than 50 meters), require re-geolocation
+        // If accuracy is provided and is too high (more than 50 meters), log warning but still allow
         if (accuracy && parseFloat(accuracy) > 50) {
-            return res.status(400).json({ 
-                error: 'Precision geographique insuffisante. Veuillez activer votre GPS et reessayer.',
-                requiresHighAccuracy: true,
-                currentAccuracy: parseFloat(accuracy),
-                requiredAccuracy: 50
-            });
+            console.warn(`Warning: Alert submitted with low accuracy: ${accuracy}m`);
         }
 
         // Validate coordinates are within reasonable bounds (Goma, RDC area)
