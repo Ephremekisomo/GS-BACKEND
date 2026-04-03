@@ -1026,11 +1026,20 @@ app.get('/api/alerts/poste/:posteId', async (req, res) => {
 // Update alert status (admin and security center)
 app.put('/api/alerts/:id/status', authenticateToken, requireAdminOrSecurityCenter, async (req, res) => {
     try {
-        const { status } = req.body;
+        let { status } = req.body;
         const alertId = parseInt(req.params.id);
         
-        if (!status) {
-            return res.status(400).json({ error: 'Status requis' });
+        // Trim and validate status
+        if (status) {
+            status = status.trim().toLowerCase();
+        }
+        
+        const validStatuses = ['active', 'in_progress', 'resolved', 'cancelled', 'false_alarm'];
+        
+        if (!status || !validStatuses.includes(status)) {
+            return res.status(400).json({ 
+                error: 'Status invalide. Valeurs acceptées: ' + validStatuses.join(', ')
+            });
         }
 
         // Check if alert exists
@@ -1047,10 +1056,10 @@ app.put('/api/alerts/:id/status', authenticateToken, requireAdminOrSecurityCente
         // Emit status update
         io.emit('alert-updated', { id: alertId, status });
 
-        res.json({ message: 'Statut mis a jour' });
+        res.json({ message: 'Statut mis a jour', status });
     } catch (error) {
         console.error('Error updating alert status:', error);
-        res.status(500).json({ error: 'Erreur lors de la mise a jour' });
+        res.status(500).json({ error: 'Erreur lors de la mise a jour: ' + error.message });
     }
 });
 
