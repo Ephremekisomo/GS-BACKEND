@@ -49,17 +49,25 @@ const io = new Server(server, {
 
 
 // Configuration de la connexion PostgreSQL
+const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' 
+    ssl: isProduction 
     ? { rejectUnauthorized: false } 
     : false
 });
 const connectionString = process.env.DATABASE_URL;
-// Tester la connexion
-pool.on('connect', () => {
-    console.log('Connecté à la base de données PostgreSQL');
-});
+
+// Tester la connexion au démarrage
+async function testConnection() {
+    try {
+        const client = await pool.connect();
+        console.log('✅ Connecté à la base de données PostgreSQL');
+        client.release();
+    } catch (err) {
+        console.error('❌ Erreur de connexion à PostgreSQL:', err.message);
+    }
+}
 
 pool.on('error', (err) => {
     console.error('Erreur de connexion à PostgreSQL:', err.message);
@@ -192,8 +200,32 @@ async function initializeDatabase() {
     }
 }
 
-// Appeler la fonction d'initialisation
-initializeDatabase();
+// Tester la connexion et initialiser la base de données
+async function startApp() {
+    await testConnection();
+    await initializeDatabase();
+    
+    server.listen(PORT, () => {
+        console.log(`
+╔════════════════════════════════════════════════════════════╗
+║                                                            ║
+║   🏢 GOMA SECURITY - Serveur en ligne                    ║
+║                                                            ║
+║   📍 Interface citizens: http://localhost:${PORT}            ║
+║   📍 Centre de securite: http://localhost:${PORT}/security-center  ║
+║   📍 Poste de securite: http://localhost:${PORT}/poste      ║
+║   📍 Panel Admin: http://localhost:${PORT}/admin             ║
+║                                                            ║
+║   👤 Admin par defaut:                                     ║
+║      Telephone: +243000000000                              ║
+║      Mot de passe: admin123                                ║
+║                                                            ║
+╚════════════════════════════════════════════════════════════╝
+        `);
+    });
+}
+
+startApp();
 
 
 
@@ -1753,25 +1785,7 @@ app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
 // =====================
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`
-╔════════════════════════════════════════════════════════════╗
-║                                                            ║
-║   🏢 GOMA SECURITY - Serveur en ligne                    ║
-║                                                            ║
-║   📍 Interface citoyens: http://localhost:${PORT}            ║
-║   📍 Centre de securite: http://localhost:${PORT}/security-center  ║
-║   📍 Poste de securite: http://localhost:${PORT}/poste      ║
-║   📍 Panel Admin: http://localhost:${PORT}/admin             ║
-║                                                            ║
-║   👤 Admin par defaut:                                     ║
-║      Telephone: +243000000000                              ║
-║      Mot de passe: admin123                                ║
-║                                                            ║
-║   🗄️  Base de données: PostgreSQL                          ║
-║                                                            ║
-╚════════════════════════════════════════════════════════════╝
-    `);
-});
+
+// Le serveur démarre dans startApp() après connexion à la DB
 
 module.exports = { app, pool, io };
