@@ -1444,91 +1444,96 @@ app.get('/',(req, res)=>{
 // Get database info
 app.get('/api/system/database', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        // Get table count from PostgreSQL
-        const result = await pool.query(
+        const tableCountResult = await pool.query(
             "SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = 'public'"
         );
-        const tableCount = result.rows[0]?.count || 0;
+        
+        const usersCount = await pool.query('SELECT COUNT(*) as count FROM users');
+        const alertsCount = await pool.query('SELECT COUNT(*) as count FROM alerts');
+        const messagesCount = await pool.query('SELECT COUNT(*) as count FROM chat_messages');
+        const emergencyTypesCount = await pool.query('SELECT COUNT(*) as count FROM emergency_types');
         
         res.json({
             type: 'PostgreSQL',
-            tables: parseInt(tableCount)
+            tables: parseInt(tableCountResult.rows[0]?.count || 0),
+            users: parseInt(usersCount.rows[0]?.count || 0),
+            alerts: parseInt(alertsCount.rows[0]?.count || 0),
+            messages: parseInt(messagesCount.rows[0]?.count || 0),
+            emergencyTypes: parseInt(emergencyTypesCount.rows[0]?.count || 0)
         });
     } catch (error) {
-        res.json({
-            type: 'PostgreSQL',
-            tables: 0
-        });
+        console.error('Database info error:', error);
+        res.status(500).json({ error: 'Erreur serveur' });
     }
 });
 
 // Get server info
 app.get('/api/system/server', authenticateToken, requireAdmin, (req, res) => {
     const os = require('os');
+    const memoryUsage = process.memoryUsage();
     
     res.json({
         port: process.env.PORT || 3000,
-        environment: process.env.NODE_ENV || 'development',
-        uptime: process.uptime(),
-        memory: process.memoryUsage().heapUsed,
+        environment: process.env.NODE_ENV || 'production',
+        uptime: Math.floor(process.uptime()),
+        memoryUsed: Math.round(memoryUsage.heapUsed / 1024 / 1024),
+        memoryTotal: Math.round(memoryUsage.heapTotal / 1024 / 1024),
         platform: os.platform(),
         arch: os.arch(),
-        nodeVersion: process.version
+        nodeVersion: process.version,
+        cpuCount: os.cpus().length
     });
 });
 
-// Get storage info
-app.get('/api/system/storage', authenticateToken, requireAdmin, (req, res) => {
-    const fs = require('fs');
-    const path = require('path');
-    
-    const uploadsDir = path.join(__dirname, 'uploads');
-    const profilesDir = path.join(uploadsDir, 'profiles');
-    const voicesDir = path.join(uploadsDir, 'voices');
-    
-    let photos = 0;
-    let voices = 0;
-    let totalSize = 0;
-    
+// Get storage and file stats from database
+app.get('/api/system/storage', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        if (fs.existsSync(profilesDir)) {
-            const profileFiles = fs.readdirSync(profilesDir);
-            photos = profileFiles.filter(f => f !== '.gitkeep').length;
-            profileFiles.forEach(f => {
-                if (f !== '.gitkeep') {
-                    const filePath = path.join(profilesDir, f);
-                    const stat = fs.statSync(filePath);
-                    totalSize += stat.size;
-                }
-            });
-        }
+        const photosResult = await pool.query(
+            "SELECT COUNT(*) as count FROM alerts WHERE photo IS NOT NULL AND photo != ''"
+        );
+        const voicesResult = await pool.query(
+            "SELECT COUNT(*) as count FROM chat_messages WHERE audio_path IS NOT NULL AND audio_path != ''"
+        );
         
-        if (fs.existsSync(voicesDir)) {
-            const voiceFiles = fs.readdirSync(voicesDir);
-            voices = voiceFiles.filter(f => f !== '.gitkeep').length;
-            voiceFiles.forEach(f => {
-                if (f !== '.gitkeep') {
-                    const filePath = path.join(voicesDir, f);
-                    const stat = fs.statSync(filePath);
-                    totalSize += stat.size;
-                }
-            });
-        }
+        const totalPhotos = parseInt(photosResult.rows[0]?.count || 0);
+        const totalVoices = parseInt(voicesResult.rows[0]?.count || 0);
+        
+        res.json({ 
+            photos: totalPhotos,
+            voices: totalVoices,
+            totalFiles: totalPhotos + totalVoices,
+            note: 'Stockage fichier non disponible sur Render'
+        });
     } catch (error) {
-        console.error('Error reading storage:', error);
+        console.error('Storage info error:', error);
+        res.status(500).json({ error: 'Erreur serveur' });
     }
-    
-    res.json({ photos, voices, totalSize });
 });
 
-// Get socket info
-app.get('/api/system/socket', authenticateToken, requireAdmin, (req, res) => {
+// Get socket connections and real-time stats
+app.get('/api/system/socket', authenticateToken, requireAdmin, async (req, res) => {
     const connections = io.engine ? io.engine.clientsCount : 0;
     
-    res.json({
-        connections,
-        messages: 0 // This would need to be tracked
-    });
+    try {
+        const activeAlerts = await pool.query(
+            "SELECT COUNT(*) as count FROM alerts WHERE LOWER(status) = 'active'"
+        );
+        const unreadMessages = await pool.query(
+            "SELECT COUNT(*) as count FROM chat_messages WHERE is_read = 0"
+        );
+        
+        res.json({
+            connections: connections,
+            activeAlerts: parseInt(activeAlerts.rows[0]?.count || 0),
+            unreadMessages: parseInt(unreadMessages.rows[0]?.count || 0)
+        });
+    } catch (error) {
+        res.json({
+            connections: connections,
+            activeAlerts: 0,
+            unreadMessages: 0
+        });
+    }
 });
 
 // Backup database
