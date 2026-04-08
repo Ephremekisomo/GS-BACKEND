@@ -673,8 +673,8 @@ app.post('/api/alerts', authenticateToken, upload.single('photo'), async (req, r
         );
 
         if (alertResult.rows.length > 0) {
-            // Emit to security center
             io.emit('new-alert', alertResult.rows[0]);
+            emitNotificationCounts();
         }
 
         res.json({
@@ -774,7 +774,6 @@ app.post('/api/chat/messages', authenticateToken, async (req, res) => {
             [req.user.id, receiverId, message]
         );
         
-        // Emit socket event for real-time update
         io.emit('chat-message', {
             id: insertResult.rows[0].id,
             sender_id: req.user.id,
@@ -782,6 +781,7 @@ app.post('/api/chat/messages', authenticateToken, async (req, res) => {
             message: message,
             created_at: new Date().toISOString()
         });
+        emitNotificationCounts();
         
         res.json({ message: 'Message envoye', id: insertResult.rows[0].id });
     } catch (error) {
@@ -817,7 +817,6 @@ app.post('/api/chat/voice', authenticateToken, uploadVoice.single('audio'), asyn
             [user.id, adminResult.rows[0].id, message, audioPath]
         );
         
-        // Emit socket event for real-time update
         io.emit('chat-message', {
             id: insertResult.rows[0].id,
             sender_id: user.id,
@@ -826,6 +825,7 @@ app.post('/api/chat/voice', authenticateToken, uploadVoice.single('audio'), asyn
             audio_path: audioPath,
             created_at: new Date().toISOString()
         });
+        emitNotificationCounts();
         
         res.json({ message: 'Message vocal envoye', id: insertResult.rows[0].id, audioPath: audioPath });
     } catch (error) {
@@ -888,7 +888,6 @@ app.post('/api/chat/admin/send', authenticateToken, requireAdminOrSecurityCenter
             [req.user.id, user_id, message]
         );
         
-        // Emit socket event
         io.emit('chat-message', {
             id: insertResult.rows[0].id,
             sender_id: req.user.id,
@@ -897,6 +896,7 @@ app.post('/api/chat/admin/send', authenticateToken, requireAdminOrSecurityCenter
             is_from_admin: 1,
             created_at: new Date().toISOString()
         });
+        emitNotificationCounts();
         
         res.json({ message: 'Message envoye' });
     } catch (error) {
@@ -925,7 +925,6 @@ app.post('/api/chat/admin/voice', authenticateToken, requireAdminOrSecurityCente
             [req.user.id, user_id, message, audioPath]
         );
         
-        // Emit socket event
         io.emit('chat-message', {
             id: insertResult.rows[0].id,
             sender_id: req.user.id,
@@ -935,6 +934,7 @@ app.post('/api/chat/admin/voice', authenticateToken, requireAdminOrSecurityCente
             is_from_admin: 1,
             created_at: new Date().toISOString()
         });
+        emitNotificationCounts();
         
         res.json({ message: 'Message vocal envoye', audioPath: audioPath });
     } catch (error) {
@@ -1134,8 +1134,8 @@ app.put('/api/alerts/:id/status', authenticateToken, requireAdminOrSecurityCente
             [status, alertId]
         );
 
-        // Emit status update
         io.emit('alert-updated', { id: alertId, status });
+        emitNotificationCounts();
 
         res.json({ message: 'Statut mis a jour', status });
     } catch (error) {
@@ -1239,6 +1239,81 @@ app.get('/api/stats', authenticateToken, requireAdminOrSecurityCenter, async (re
     }
 });
 
+// Get alerts by quartier and type (for histogram/diagram)
+app.get('/api/stats/quartier', authenticateToken, requireAdminOrSecurityCenter, async (req, res) => {
+    try {
+        // Get alerts grouped by quartier and type
+        const result = await pool.query(
+            `SELECT 
+                COALESCE(a.quartier, 'Non specifie') as quartier,
+                et.nom as type_nom,
+                et.couleur as type_couleur,
+                COUNT(*) as count
+             FROM alerts a
+             JOIN emergency_types et ON a.type_id = et.id
+             GROUP BY a.quartier, et.nom, et.couleur
+             ORDER BY quartier, count DESC`
+        );
+        
+        // Also get summary by quartier
+        const quartierSummary = await pool.query(
+            `SELECT 
+                COALESCE(quartier, 'Non specifie') as quartier,
+                COUNT(*) as total
+             FROM alerts
+             GROUP BY quartier
+             ORDER BY total DESC`
+        );
+        
+        res.json({
+            by_quartier_type: result.rows,
+            by_quartier: quartierSummary.rows
+        });
+    } catch (error) {
+        console.error('Stats quartier error:', error);
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+// Get unread alerts count for admin/security center
+app.get('/api/alerts/unread/count', authenticateToken, requireAdminOrSecurityCenter, async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT COUNT(*) as count FROM alerts WHERE LOWER(status) = 'active'`
+        );
+        res.json({ count: parseInt(result.rows[0]?.count || 0) });
+    } catch (error) {
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+// Get unread messages count
+app.get('/api/chat/unread/count', authenticateToken, async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT COUNT(*) as count FROM chat_messages 
+             WHERE receiver_id = $1 AND is_read = 0`,
+            [req.user.id]
+        );
+        res.json({ count: parseInt(result.rows[0]?.count || 0) });
+    } catch (error) {
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+// Mark messages as read
+app.put('/api/chat/messages/read', authenticateToken, async (req, res) => {
+    try {
+        await pool.query(
+            `UPDATE chat_messages SET is_read = 1 WHERE receiver_id = $1 AND is_read = 0`,
+            [req.user.id]
+        );
+        res.json({ message: 'Messages marques comme lus' });
+    } catch (error) {
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
 // =====================
 // ROUTES - USER PROFILE
 // =====================
@@ -1313,6 +1388,28 @@ io.on('connection', (socket) => {
         console.log('Client deconnecte:', socket.id);
     });
 });
+
+// Emit notification counts to admin/security center
+async function emitNotificationCounts() {
+    try {
+        const alertsResult = await pool.query(
+            `SELECT COUNT(*) as count FROM alerts WHERE LOWER(status) = 'active'`
+        );
+        const alertCount = parseInt(alertsResult.rows[0]?.count || 0);
+
+        const messagesResult = await pool.query(
+            `SELECT COUNT(*) as count FROM chat_messages WHERE is_read = 0`
+        );
+        const messageCount = parseInt(messagesResult.rows[0]?.count || 0);
+
+        io.emit('notification-counts', {
+            alerts: alertCount,
+            messages: messageCount
+        });
+    } catch (error) {
+        console.error('Error emitting notification counts:', error);
+    }
+}
 
 // =====================
 // PAGES
