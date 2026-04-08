@@ -703,17 +703,22 @@ app.get('/api/alerts/my', authenticateToken, async (req, res) => {
     }
 });
 
-// Delete citizen's alert (citizen can only delete their own alerts)
+// Delete alert (admin can delete any alert, citizen can only delete their own alerts)
 app.delete('/api/alerts/:id', authenticateToken, async (req, res) => {
     try {
         const alertId = parseInt(req.params.id);
         
-        // First check if the alert belongs to the user
+        // Check if the alert belongs to the user only if they are not admin or security center
+        const isAdminOrSecurityCenter = req.user.role === 'admin' || req.user.role === 'centre_securite';
+        
+        // First check if the alert exists
         const alertResult = await pool.query('SELECT user_id FROM alerts WHERE id = $1', [alertId]);
         if (alertResult.rows.length === 0) {
             return res.status(404).json({ error: 'Alerte non trouvee' });
         }
-        if (alertResult.rows[0].user_id !== req.user.id) {
+        
+        // If not admin or security center, check if the alert belongs to the user
+        if (!isAdminOrSecurityCenter && alertResult.rows[0].user_id !== req.user.id) {
             return res.status(403).json({ error: 'Non autorise' });
         }
         
