@@ -94,7 +94,11 @@ CREATE TABLE IF NOT EXISTS emergency_types (
     nom TEXT UNIQUE NOT NULL,
     icone TEXT NOT NULL,
     couleur TEXT NOT NULL,
-    priorite INTEGER NOT NULL DEFAULT 3
+    priorite INTEGER NOT NULL DEFAULT 3 CHECK(priorite BETWEEN 1 AND 5),
+    description TEXT,
+    photo TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Alerts table

@@ -614,6 +614,16 @@ app.put('/api/emergency-types/:id', authenticateToken, requireAdmin, upload.sing
     }
 });
 
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Type d\'urgence non trouve' });
+        }
+
+        res.json({ message: 'Type d\'urgence mis a jour', type: result.rows[0] });
+    } catch (error) {
+        res.status(500).json({ error: 'Erreur lors de la mise a jour' });
+    }
+});
+
 // Delete emergency type (admin only)
 app.delete('/api/emergency-types/:id', authenticateToken, requireAdmin, async (req, res) => {
     try {
