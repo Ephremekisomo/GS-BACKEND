@@ -1617,6 +1617,40 @@ app.get('/api/users', authenticateToken, requireAdmin, async (req, res) => {
     }
 });
 
+// Create user (admin only)
+app.post('/api/users', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const { nom, prenom, telephone, email, password, role, quartier, avenue } = req.body;
+        
+        if (!nom || !prenom || !telephone || !password) {
+            return res.status(400).json({ error: 'Nom, prenom, telephone et mot de passe requis' });
+        }
+        
+        if (role && !validateRole(role)) {
+            return res.status(400).json({ error: 'Role invalide. Roles valides: ' + VALID_ROLES.join(', ') });
+        }
+        
+        // Check if telephone already exists
+        const existingUser = await pool.query('SELECT id FROM users WHERE telephone = $1', [telephone]);
+        if (existingUser.rows.length > 0) {
+            return res.status(400).json({ error: 'Ce numero de telephone existe deja' });
+        }
+        
+        const password_hash = await bcrypt.hash(password, 10);
+        
+        const result = await pool.query(
+            `INSERT INTO users (nom, prenom, telephone, email, password_hash, role, quartier, avenue)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, nom, prenom, telephone, role`,
+            [nom, prenom, telephone, email, password_hash, role || 'citoyen', quartier, avenue]
+        );
+        
+        res.status(201).json({ message: 'Utilisateur cree avec succes', user: result.rows[0] });
+    } catch (error) {
+        console.error('Create user error:', error);
+        res.status(500).json({ error: 'Erreur lors de la creation de l\'utilisateur' });
+    }
+});
+
 // Update user (admin only)
 app.put('/api/users/:id', authenticateToken, requireAdmin, async (req, res) => {
     try {
