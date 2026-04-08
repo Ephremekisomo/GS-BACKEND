@@ -103,6 +103,7 @@ async function initializeDatabase() {
                 couleur TEXT NOT NULL,
                 priorite INTEGER NOT NULL DEFAULT 3 CHECK(priorite BETWEEN 1 AND 5),
                 description TEXT,
+                photo TEXT,
                 is_active INTEGER DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -566,18 +567,19 @@ app.get('/api/emergency-types', async (req, res) => {
 });
 
 // Create emergency type (admin only)
-app.post('/api/emergency-types', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/emergency-types', authenticateToken, requireAdmin, upload.single('photo'), async (req, res) => {
     try {
         const { nom, icone, couleur, priorite, description } = req.body;
+        const photo = req.file ? '/uploads/profiles/' + req.file.filename : null;
         
         if (!nom || !icone || !couleur) {
             return res.status(400).json({ error: 'Nom, icone et couleur requis' });
         }
 
         const result = await pool.query(
-            `INSERT INTO emergency_types (nom, icone, couleur, priorite, description)
-             VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-            [nom, icone, couleur, priorite || 3, description]
+            `INSERT INTO emergency_types (nom, icone, couleur, priorite, description, photo)
+             VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+            [nom, icone, couleur, priorite || 3, description, photo]
         );
 
         res.status(201).json({ message: 'Type d\'urgence cree', type: result.rows[0] });
@@ -590,15 +592,16 @@ app.post('/api/emergency-types', authenticateToken, requireAdmin, async (req, re
 });
 
 // Update emergency type (admin only)
-app.put('/api/emergency-types/:id', authenticateToken, requireAdmin, async (req, res) => {
+app.put('/api/emergency-types/:id', authenticateToken, requireAdmin, upload.single('photo'), async (req, res) => {
     try {
         const typeId = parseInt(req.params.id);
-        const { nom, icone, couleur, priorite, description } = req.body;
+        const { nom, icone, couleur, priorite, description, existing_photo } = req.body;
+        const photo = req.file ? '/uploads/profiles/' + req.file.filename : existing_photo;
 
         const result = await pool.query(
-            `UPDATE emergency_types SET nom = $1, icone = $2, couleur = $3, priorite = $4, description = $5
-             WHERE id = $6 RETURNING *`,
-            [nom, icone, couleur, priorite, description, typeId]
+            `UPDATE emergency_types SET nom = $1, icone = $2, couleur = $3, priorite = $4, description = $5, photo = $6
+             WHERE id = $7 RETURNING *`,
+            [nom, icone, couleur, priorite, description, photo, typeId]
         );
 
         if (result.rows.length === 0) {
