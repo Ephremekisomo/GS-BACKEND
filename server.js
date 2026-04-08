@@ -1208,30 +1208,26 @@ app.get('/api/stats', authenticateToken, requireAdminOrSecurityCenter, async (re
         
         console.log('Stats API called');
         
-        // Use case-insensitive comparison with LOWER()
-        const totalResult = await pool.query('SELECT COUNT(*) as total FROM alerts');
+        // Use PostgreSQL with ::int casting
+        const totalResult = await pool.query('SELECT COUNT(*)::int as total FROM alerts');
         stats.total = totalResult.rows[0]?.total || 0;
-        console.log('Total alerts:', stats.total);
         
-        const activeResult = await pool.query('SELECT COUNT(*) as active FROM alerts WHERE LOWER(status) = \'active\' OR status IS NULL');
+        const activeResult = await pool.query("SELECT COUNT(*)::int as active FROM alerts WHERE LOWER(status) = 'active' OR status IS NULL");
         stats.active = activeResult.rows[0]?.active || 0;
-        console.log('Active alerts:', stats.active);
         
-        const inProgressResult = await pool.query('SELECT COUNT(*) as in_progress FROM alerts WHERE LOWER(status) = \'in_progress\'');
+        const inProgressResult = await pool.query("SELECT COUNT(*)::int as in_progress FROM alerts WHERE LOWER(status) = 'in_progress'");
         stats.in_progress = inProgressResult.rows[0]?.in_progress || 0;
         
-        const resolvedResult = await pool.query('SELECT COUNT(*) as resolved FROM alerts WHERE LOWER(status) = \'resolved\'');
+        const resolvedResult = await pool.query("SELECT COUNT(*)::int as resolved FROM alerts WHERE LOWER(status) = 'resolved'");
         stats.resolved = resolvedResult.rows[0]?.resolved || 0;
         
         const byTypeResult = await pool.query(
-            `SELECT et.nom, COUNT(*) as count 
+            `SELECT et.nom, COUNT(*)::int as count 
              FROM alerts a 
              JOIN emergency_types et ON a.type_id = et.id 
              GROUP BY et.nom`
         );
         stats.by_type = byTypeResult.rows || [];
-        
-        console.log('Sending stats:', stats);
         res.json(stats);
     } catch (error) {
         console.error('Stats error:', error);
@@ -1248,7 +1244,7 @@ app.get('/api/stats/quartier', authenticateToken, requireAdminOrSecurityCenter, 
                 COALESCE(a.quartier, 'Non specifie') as quartier,
                 et.nom as type_nom,
                 et.couleur as type_couleur,
-                COUNT(*) as count
+                COUNT(*)::int as count
              FROM alerts a
              JOIN emergency_types et ON a.type_id = et.id
              GROUP BY a.quartier, et.nom, et.couleur
@@ -1259,7 +1255,7 @@ app.get('/api/stats/quartier', authenticateToken, requireAdminOrSecurityCenter, 
         const quartierSummary = await pool.query(
             `SELECT 
                 COALESCE(quartier, 'Non specifie') as quartier,
-                COUNT(*) as total
+                COUNT(*)::int as total
              FROM alerts
              GROUP BY quartier
              ORDER BY total DESC`
@@ -1279,9 +1275,9 @@ app.get('/api/stats/quartier', authenticateToken, requireAdminOrSecurityCenter, 
 app.get('/api/alerts/unread/count', authenticateToken, requireAdminOrSecurityCenter, async (req, res) => {
     try {
         const result = await pool.query(
-            `SELECT COUNT(*) as count FROM alerts WHERE LOWER(status) = 'active'`
+            "SELECT COUNT(*)::int as count FROM alerts WHERE LOWER(status) = 'active' OR status IS NULL"
         );
-        res.json({ count: parseInt(result.rows[0]?.count || 0) });
+        res.json({ count: result.rows[0]?.count || 0 });
     } catch (error) {
         res.status(500).json({ error: 'Erreur serveur' });
     }
@@ -1291,11 +1287,10 @@ app.get('/api/alerts/unread/count', authenticateToken, requireAdminOrSecurityCen
 app.get('/api/chat/unread/count', authenticateToken, async (req, res) => {
     try {
         const result = await pool.query(
-            `SELECT COUNT(*) as count FROM chat_messages 
-             WHERE receiver_id = $1 AND is_read = 0`,
+            "SELECT COUNT(*)::int as count FROM chat_messages WHERE receiver_id = $1 AND is_read = 0",
             [req.user.id]
         );
-        res.json({ count: parseInt(result.rows[0]?.count || 0) });
+        res.json({ count: result.rows[0]?.count || 0 });
     } catch (error) {
         res.status(500).json({ error: 'Erreur serveur' });
     }
@@ -1393,14 +1388,14 @@ io.on('connection', (socket) => {
 async function emitNotificationCounts() {
     try {
         const alertsResult = await pool.query(
-            `SELECT COUNT(*) as count FROM alerts WHERE LOWER(status) = 'active'`
+            "SELECT COUNT(*)::int as count FROM alerts WHERE LOWER(status) = 'active' OR status IS NULL"
         );
-        const alertCount = parseInt(alertsResult.rows[0]?.count || 0);
+        const alertCount = alertsResult.rows[0]?.count || 0;
 
         const messagesResult = await pool.query(
-            `SELECT COUNT(*) as count FROM chat_messages WHERE is_read = 0`
+            "SELECT COUNT(*)::int as count FROM chat_messages WHERE is_read = 0"
         );
-        const messageCount = parseInt(messagesResult.rows[0]?.count || 0);
+        const messageCount = messagesResult.rows[0]?.count || 0;
 
         io.emit('notification-counts', {
             alerts: alertCount,
@@ -1445,21 +1440,21 @@ app.get('/',(req, res)=>{
 app.get('/api/system/database', authenticateToken, requireAdmin, async (req, res) => {
     try {
         const tableCountResult = await pool.query(
-            "SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = 'public'"
+            "SELECT COUNT(*)::int as count FROM information_schema.tables WHERE table_schema = 'public'"
         );
         
-        const usersCount = await pool.query('SELECT COUNT(*) as count FROM users');
-        const alertsCount = await pool.query('SELECT COUNT(*) as count FROM alerts');
-        const messagesCount = await pool.query('SELECT COUNT(*) as count FROM chat_messages');
-        const emergencyTypesCount = await pool.query('SELECT COUNT(*) as count FROM emergency_types');
+        const usersCount = await pool.query('SELECT COUNT(*)::int as count FROM users');
+        const alertsCount = await pool.query('SELECT COUNT(*)::int as count FROM alerts');
+        const messagesCount = await pool.query('SELECT COUNT(*)::int as count FROM chat_messages');
+        const emergencyTypesCount = await pool.query('SELECT COUNT(*)::int as count FROM emergency_types');
         
         res.json({
             type: 'PostgreSQL',
-            tables: parseInt(tableCountResult.rows[0]?.count || 0),
-            users: parseInt(usersCount.rows[0]?.count || 0),
-            alerts: parseInt(alertsCount.rows[0]?.count || 0),
-            messages: parseInt(messagesCount.rows[0]?.count || 0),
-            emergencyTypes: parseInt(emergencyTypesCount.rows[0]?.count || 0)
+            tables: tableCountResult.rows[0]?.count || 0,
+            users: usersCount.rows[0]?.count || 0,
+            alerts: alertsCount.rows[0]?.count || 0,
+            messages: messagesCount.rows[0]?.count || 0,
+            emergencyTypes: emergencyTypesCount.rows[0]?.count || 0
         });
     } catch (error) {
         console.error('Database info error:', error);
@@ -1489,14 +1484,14 @@ app.get('/api/system/server', authenticateToken, requireAdmin, (req, res) => {
 app.get('/api/system/storage', authenticateToken, requireAdmin, async (req, res) => {
     try {
         const photosResult = await pool.query(
-            "SELECT COUNT(*) as count FROM alerts WHERE photo IS NOT NULL AND photo != ''"
+            "SELECT COUNT(*)::int as count FROM alerts WHERE photo IS NOT NULL AND photo != ''"
         );
         const voicesResult = await pool.query(
-            "SELECT COUNT(*) as count FROM chat_messages WHERE audio_path IS NOT NULL AND audio_path != ''"
+            "SELECT COUNT(*)::int as count FROM chat_messages WHERE audio_path IS NOT NULL AND audio_path != ''"
         );
         
-        const totalPhotos = parseInt(photosResult.rows[0]?.count || 0);
-        const totalVoices = parseInt(voicesResult.rows[0]?.count || 0);
+        const totalPhotos = photosResult.rows[0]?.count || 0;
+        const totalVoices = voicesResult.rows[0]?.count || 0;
         
         res.json({ 
             photos: totalPhotos,
@@ -1515,23 +1510,24 @@ app.get('/api/system/socket', authenticateToken, requireAdmin, async (req, res) 
     const connections = io.engine ? io.engine.clientsCount : 0;
     
     try {
-        const activeAlerts = await pool.query(
-            "SELECT COUNT(*) as count FROM alerts WHERE LOWER(status) = 'active'"
+        const activeAlertsResult = await pool.query(
+            "SELECT COUNT(*)::int as count FROM alerts WHERE LOWER(status) = 'active' OR status IS NULL"
         );
-        const unreadMessages = await pool.query(
-            "SELECT COUNT(*) as count FROM chat_messages WHERE is_read = 0"
+        const unreadMessagesResult = await pool.query(
+            "SELECT COUNT(*)::int as count FROM chat_messages WHERE is_read = 0"
         );
         
         res.json({
             connections: connections,
-            activeAlerts: parseInt(activeAlerts.rows[0]?.count || 0),
-            unreadMessages: parseInt(unreadMessages.rows[0]?.count || 0)
+            activeAlerts: activeAlertsResult.rows[0]?.count || 0,
+            unreadMessages: unreadMessagesResult.rows[0]?.count || 0
         });
     } catch (error) {
+        console.error('Socket stats error:', error);
         res.json({
             connections: connections,
-            activeAlerts: 0,
-            unreadMessages: 0
+            activeAlerts: 'N/A',
+            unreadMessages: 'N/A'
         });
     }
 });
