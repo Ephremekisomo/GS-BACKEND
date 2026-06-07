@@ -1397,6 +1397,8 @@ app.put('/api/user/profile', authenticateToken, upload.single('photo'), async (r
 // SOCKET.IO
 // =====================
 
+const calls = new Map();
+
 io.on('connection', (socket) => {
     console.log('Client connecte:', socket.id);
 
@@ -1412,6 +1414,76 @@ io.on('connection', (socket) => {
         console.log('Reinforcement call received:', data);
         io.to('security-center').emit('reinforcement-call', data);
         io.emit('reinforcement-call', data);
+    });
+
+    socket.on('citizen-call', async (data) => {
+        console.log('Citizen calling security center:', data);
+        const callerSocket = socket;
+        calls.set(data.callerId, { socketId: callerSocket.id, data });
+        
+        io.to('security-center').emit('citizen-call', data);
+        io.emit('citizen-call', data);
+    });
+
+    socket.on('admin-answer-call', async (data) => {
+        const callInfo = calls.get(data.callerId);
+        if (callInfo) {
+            const callerSocket = io.sockets.sockets.get(callInfo.socketId);
+            if (callerSocket) {
+                callerSocket.emit('admin-incoming-call', {
+                    callerName: callInfo.data.callerName,
+                    callerId: callInfo.data.callerId,
+                    type: callInfo.data.type,
+                    quartier: callInfo.data.quartier,
+                    avenue: callInfo.data.avenue,
+                    latitude: callInfo.data.latitude,
+                    longitude: callInfo.data.longitude,
+                    timestamp: callInfo.data.timestamp
+                });
+            }
+        }
+    });
+
+    socket.on('reject-call', (data) => {
+        const callInfo = calls.get(data.callerId);
+        if (callInfo) {
+            const callerSocket = io.sockets.sockets.get(callInfo.socketId);
+            if (callerSocket) {
+                callerSocket.emit('call-rejected', {});
+            }
+            calls.delete(data.callerId);
+        }
+    });
+
+    socket.on('end-call', (data) => {
+        const callInfo = calls.get(data.callerId);
+        if (callInfo) {
+            const callerSocket = io.sockets.sockets.get(callInfo.socketId);
+            if (callerSocket) {
+                callerSocket.emit('call-ended', {});
+            }
+            calls.delete(data.callerId);
+        }
+    });
+
+    socket.on('webrtc-ice-candidate', (data) => {
+        if (data.target === 'security-center') {
+            io.to('security-center').emit('webrtc-ice-candidate', {
+                callerId: data.callerId,
+                candidate: data.candidate
+            });
+        } else if (data.target === 'citizen') {
+            const callInfo = calls.get(data.callerId);
+            if (callInfo) {
+                const callerSocket = io.sockets.sockets.get(callInfo.socketId);
+                if (callerSocket) {
+                    callerSocket.emit('webrtc-ice-candidate', {
+                        callerId: data.callerId,
+                        candidate: data.candidate
+                    });
+                }
+            }
+        }
     });
 
     socket.on('disconnect', () => {
