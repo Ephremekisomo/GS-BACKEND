@@ -328,6 +328,8 @@ const uploadVoice = multer({
 // CONSTANTS
 // =====================
 
+const PORT = process.env.PORT || 3000;
+
 const VALID_ROLES = ['citoyen', 'admin', 'pompiers','police','protection civile','ambulance', 'centre_securite'];
 
 const ROLE_REDIRECTS = {
@@ -1845,8 +1847,6 @@ app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
 // =====================
 // START SERVER
 // =====================
-
-const PORT = process.env.PORT || 3000;
 
 // Le serveur démarre dans startApp() après connexion à la DB
 
