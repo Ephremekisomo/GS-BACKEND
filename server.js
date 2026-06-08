@@ -54,7 +54,8 @@ const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: isProduction 
     ? { rejectUnauthorized: false } 
-    : false
+    : false,
+    family: 4
 });
 const connectionString = process.env.DATABASE_URL;
 
@@ -996,6 +997,23 @@ app.delete('/api/chat/admin/messages/:id', authenticateToken, requireAdminOrSecu
 });
 
 
+
+// Get admin ID for calls
+app.get('/api/chat/admin-id', async (req, res) => {
+    try {
+        const result = await pool.query(
+            "SELECT id FROM users WHERE role IN ('admin', 'centre_securite') LIMIT 1"
+        );
+        if (result.rows.length > 0) {
+            res.json({ adminId: result.rows[0].id });
+        } else {
+            res.status(404).json({ error: 'Admin non trouve' });
+        }
+    } catch (error) {
+        console.error('Admin ID error:', error);
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
 
 // Get users who have sent chat messages (admin)
 app.get('/api/chat/users', authenticateToken, requireAdminOrSecurityCenter, async (req, res) => {
