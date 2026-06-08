@@ -1443,6 +1443,15 @@ io.on('connection', (socket) => {
         
         io.to('security-center').emit('citizen-call', data);
         io.emit('citizen-call', data);
+        
+        // If there's a webrtcOffer, forward it as webrtc-offer signal
+        if (data.webrtcOffer) {
+            io.to('security-center').emit('webrtc-offer', {
+                callerId: data.callerId,
+                calleeId: data.callerId, // Will be used to route answer back
+                sdp: data.webrtcOffer.sdp
+            });
+        }
     });
 
     socket.on('admin-answer-call', async (data) => {
@@ -1502,6 +1511,25 @@ io.on('connection', (socket) => {
                         candidate: data.candidate
                     });
                 }
+            }
+        }
+    });
+
+    socket.on('webrtc-offer', (data) => {
+        console.log('WebRTC offer received from citizen:', data);
+        // Route offer to security-center admin who should answer
+        io.to('security-center').emit('webrtc-offer', data);
+    });
+
+    socket.on('webrtc-answer', (data) => {
+        console.log('WebRTC answer received:', data);
+        // Route answer back to citizen who initiated the call
+        // data.callerId is the citizen's ID
+        const citizenSocketId = calls.get(data.callerId)?.socketId;
+        if (citizenSocketId) {
+            const citizenSocket = io.sockets.sockets.get(citizenSocketId);
+            if (citizenSocket) {
+                citizenSocket.emit('webrtc-answer', data);
             }
         }
     });
