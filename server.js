@@ -59,6 +59,31 @@ const pool = new Pool({
 });
 const connectionString = process.env.DATABASE_URL;
 
+function getIceServers() {
+    const defaultIceServers = [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' },
+        { urls: 'stun:global.stun.twilio.com:3478' }
+    ];
+
+    const turnUrl = process.env.WEBRTC_TURN_URL;
+    if (!turnUrl) {
+        return defaultIceServers;
+    }
+
+    return [
+        ...defaultIceServers,
+        {
+            urls: turnUrl,
+            username: process.env.WEBRTC_TURN_USERNAME || '',
+            credential: process.env.WEBRTC_TURN_PASSWORD || ''
+        }
+    ];
+}
+
 // Tester la connexion au démarrage
 async function testConnection() {
     try {
@@ -1598,6 +1623,12 @@ app.get('/',(req, res)=>{
     res.status(200).json({
         success:true,
         message:'Backend Goma secure '
+    });
+});
+
+app.get('/api/config/webrtc', (req, res) => {
+    res.json({
+        iceServers: getIceServers()
     });
 });
 
