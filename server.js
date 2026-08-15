@@ -1437,29 +1437,37 @@ io.on('connection', (socket) => {
     });
 
     socket.on('citizen-call', async (data) => {
-        console.log('Citizen calling security center:', data);
-        const callerSocket = socket;
-        calls.set(data.callerId, { socketId: callerSocket.id, data });
-        
-        io.to('security-center').emit('citizen-call', data);
-        io.emit('citizen-call', data);
-        
-        // If there's a webrtcOffer, forward it as webrtc-offer signal
+        const callId = data.callId || `${data.callerId}-${Date.now()}`;
+        const callEntry = {
+            socketId: socket.id,
+            callerId: data.callerId,
+            callId,
+            data: { ...data, callId }
+        };
+        calls.set(callId, callEntry);
+        console.log('Citizen calling security center:', callEntry);
+
+        io.to('security-center').emit('citizen-call', { ...data, callId });
+        io.emit('citizen-call', { ...data, callId });
+
         if (data.webrtcOffer) {
             io.to('security-center').emit('webrtc-offer', {
+                callId,
                 callerId: data.callerId,
-                calleeId: data.callerId, // Will be used to route answer back
+                calleeId: 'security-center',
                 sdp: data.webrtcOffer.sdp
             });
         }
     });
 
     socket.on('admin-answer-call', async (data) => {
-        const callInfo = calls.get(data.callerId);
+        const callId = data.callId || data.callerId;
+        const callInfo = calls.get(callId) || calls.get(data.callerId);
         if (callInfo) {
             const callerSocket = io.sockets.sockets.get(callInfo.socketId);
             if (callerSocket) {
                 callerSocket.emit('admin-incoming-call', {
+                    callId: callInfo.callId,
                     callerName: callInfo.data.callerName,
                     callerId: callInfo.data.callerId,
                     type: callInfo.data.type,
@@ -1474,62 +1482,68 @@ io.on('connection', (socket) => {
     });
 
     socket.on('reject-call', (data) => {
-        const callInfo = calls.get(data.callerId);
+        const callId = data.callId || data.callerId;
+        const callInfo = calls.get(callId) || calls.get(data.callerId);
         if (callInfo) {
             const callerSocket = io.sockets.sockets.get(callInfo.socketId);
             if (callerSocket) {
-                callerSocket.emit('call-rejected', {});
+                callerSocket.emit('call-rejected', { callId: callInfo.callId });
             }
-            calls.delete(data.callerId);
+            calls.delete(callId);
+            calls.delete(callInfo.callId);
         }
     });
 
     socket.on('end-call', (data) => {
-        const callInfo = calls.get(data.callerId);
+        const callId = data.callId || data.callerId;
+        const callInfo = calls.get(callId) || calls.get(data.callerId);
         if (callInfo) {
             const callerSocket = io.sockets.sockets.get(callInfo.socketId);
             if (callerSocket) {
-                callerSocket.emit('call-ended', {});
+                callerSocket.emit('call-ended', { callId: callInfo.callId });
             }
-            calls.delete(data.callerId);
+            calls.delete(callId);
+            calls.delete(callInfo.callId);
         }
     });
 
     socket.on('webrtc-ice-candidate', (data) => {
+        const callId = data.callId || data.callerId;
+        const callInfo = calls.get(callId) || calls.get(data.callerId);
+        if (!callInfo) return;
+
         if (data.target === 'security-center') {
             io.to('security-center').emit('webrtc-ice-candidate', {
+                callId,
                 callerId: data.callerId,
                 candidate: data.candidate
             });
         } else if (data.target === 'citizen') {
-            const callInfo = calls.get(data.callerId);
-            if (callInfo) {
-                const callerSocket = io.sockets.sockets.get(callInfo.socketId);
-                if (callerSocket) {
-                    callerSocket.emit('webrtc-ice-candidate', {
-                        callerId: data.callerId,
-                        candidate: data.candidate
-                    });
-                }
+            const callerSocket = io.sockets.sockets.get(callInfo.socketId);
+            if (callerSocket) {
+                callerSocket.emit('webrtc-ice-candidate', {
+                    callId,
+                    callerId: data.callerId,
+                    candidate: data.candidate
+                });
             }
         }
     });
 
     socket.on('webrtc-offer', (data) => {
-        console.log('WebRTC offer received from citizen:', data);
-        // Route offer to security-center admin who should answer
-        io.to('security-center').emit('webrtc-offer', data);
+        const callId = data.callId || data.callerId;
+        console.log('WebRTC offer received from citizen:', { callId, callerId: data.callerId });
+        io.to('security-center').emit('webrtc-offer', { ...data, callId });
     });
 
     socket.on('webrtc-answer', (data) => {
-        console.log('WebRTC answer received:', data);
-        // Route answer back to citizen who initiated the call
-        // data.callerId is the citizen's ID
-        const citizenSocketId = calls.get(data.callerId)?.socketId;
+        const callId = data.callId || data.callerId;
+        console.log('WebRTC answer received:', { callId, callerId: data.callerId });
+        const citizenSocketId = calls.get(callId)?.socketId || calls.get(data.callerId)?.socketId;
         if (citizenSocketId) {
             const citizenSocket = io.sockets.sockets.get(citizenSocketId);
             if (citizenSocket) {
-                citizenSocket.emit('webrtc-answer', data);
+                citizenSocket.emit('webrtc-answer', { ...data, callId });
             }
         }
     });
