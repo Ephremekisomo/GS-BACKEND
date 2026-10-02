@@ -123,10 +123,14 @@ async function initializeDatabase() {
                 push_subscription TEXT,
                 is_active INTEGER DEFAULT 1,
                 last_login TIMESTAMP,
+                ville TEXT DEFAULT 'Goma',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
+
+        // Migration: ajouter la colonne ville aux tables existantes
+        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ville TEXT DEFAULT 'Goma'`);
 
         // Emergency types table
         await pool.query(`
@@ -163,6 +167,7 @@ async function initializeDatabase() {
                 assigned_to INTEGER,
                 resolved_at TIMESTAMP,
                 resolution_notes TEXT,
+                ville TEXT DEFAULT 'Goma',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
@@ -170,6 +175,9 @@ async function initializeDatabase() {
                 FOREIGN KEY (assigned_to) REFERENCES users(id) ON DELETE SET NULL
             )
         `);
+
+        // Migration: ajouter la colonne ville aux alertes existantes
+        await pool.query(`ALTER TABLE alerts ADD COLUMN IF NOT EXISTS ville TEXT DEFAULT 'Goma'`);
 
         // Chat messages table
         await pool.query(`
@@ -358,6 +366,52 @@ const PORT = process.env.PORT || 3000;
 
 const VALID_ROLES = ['citoyen', 'admin', 'pompiers','police','protection civile','ambulance', 'centre_securite'];
 
+// Villes couvertes par l'application (coordonnees, limites de validation)
+const CITIES = {
+    'Goma': {
+        nom: 'Goma',
+        lat: -1.6879163817734162,
+        lng: 29.2316536515724,
+        minLat: -2.5,
+        maxLat: -1.0,
+        minLng: 28.5,
+        maxLng: 30.0
+    },
+    'Kinshasa': {
+        nom: 'Kinshasa',
+        lat: -4.3276,
+        lng: 15.3136,
+        minLat: -5.2,
+        maxLat: -3.8,
+        minLng: 14.8,
+        maxLng: 16.1
+    }
+};
+
+const VALID_CITIES = Object.keys(CITIES);
+const DEFAULT_CITY = 'Goma';
+
+// Normalise une ville saisie par l'utilisateur
+function normalizeCity(ville) {
+    if (!ville) return DEFAULT_CITY;
+    const value = String(ville).trim();
+    if (CITIES[value]) return value;
+    const lower = value.toLowerCase();
+    const found = VALID_CITIES.find(c => c.toLowerCase() === lower);
+    return found || DEFAULT_CITY;
+}
+
+// Verifie qu'une position est dans les limites d'une ville
+function isPositionInCity(lat, lng, ville) {
+    const city = CITIES[ville] || CITIES[DEFAULT_CITY];
+    return lat >= city.minLat && lat <= city.maxLat && lng >= city.minLng && lng <= city.maxLng;
+}
+
+// Retourne la ville contenant une position (ou null)
+function getCityFromPosition(lat, lng) {
+    return VALID_CITIES.find(city => isPositionInCity(lat, lng, city)) || null;
+}
+
 const ROLE_REDIRECTS = {
     'admin': '/admin.html',
     'centre_securite': '/security-center.html',
@@ -413,7 +467,8 @@ const validateRole = (role) => {
 // Register
 app.post('/api/auth/register', authLimiter, upload.single('photo'), async (req, res) => {
     try {
-        const { nom, prenom, telephone, email, password, quartier, avenue, latitude, longitude } = req.body;
+        const { nom, prenom, telephone, email, password, quartier, avenue, latitude, longitude, ville } = req.body;
+        const userVille = normalizeCity(ville);
         
 
         // Check if user exists
@@ -426,21 +481,21 @@ app.post('/api/auth/register', authLimiter, upload.single('photo'), async (req, 
         const photo_profil = req.file ? '/uploads/profiles/' + req.file.filename : null;
 
         const insertResult = await pool.query(
-            `INSERT INTO users (nom, prenom, telephone, email, password_hash, quartier, avenue, latitude, longitude, photo_profil)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
-            [nom, prenom, telephone, email, password_hash, quartier, avenue, latitude, longitude, photo_profil]
+            `INSERT INTO users (nom, prenom, telephone, email, password_hash, quartier, avenue, latitude, longitude, photo_profil, ville)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
+            [nom, prenom, telephone, email, password_hash, quartier, avenue, latitude, longitude, photo_profil, userVille]
         );
 
         const newUser = insertResult.rows[0];
         const token = jwt.sign(
-            { id: newUser.id, telephone, role: 'citoyen' },
+            { id: newUser.id, telephone, role: 'citoyen', ville: userVille },
             process.env.JWT_SECRET || 'default_secret'
         );
 
         res.json({
             message: 'Inscription reussie',
             token,
-            user: { id: newUser.id, nom, prenom, telephone, role: 'citoyen' }
+            user: { id: newUser.id, nom, prenom, telephone, role: 'citoyen', ville: userVille }
         });
     } catch (error) {
         res.status(500).json({ error: 'Erreur serveur' });
@@ -473,8 +528,9 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
             return res.json({ requires2FA: true, tempToken });
         }
 
+        const userVille = normalizeCity(user.ville);
         const token = jwt.sign(
-            { id: user.id, telephone: user.telephone, role: user.role },
+            { id: user.id, telephone: user.telephone, role: user.role, ville: userVille },
             process.env.JWT_SECRET || 'default_secret'
         );
 
@@ -488,6 +544,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
                 prenom: user.prenom,
                 telephone: user.telephone,
                 role: user.role,
+                ville: userVille,
                 twoFaEnabled: user.two_fa_enabled === 1
             }
         });
@@ -523,8 +580,9 @@ app.post('/api/auth/verify-2fa', authLimiter, async (req, res) => {
             return res.status(401).json({ error: 'Code invalide' });
         }
 
+        const userVille = normalizeCity(user.ville);
         const token = jwt.sign(
-            { id: user.id, telephone: user.telephone, role: user.role },
+            { id: user.id, telephone: user.telephone, role: user.role, ville: userVille },
             process.env.JWT_SECRET || 'default_secret'
         );
 
@@ -538,6 +596,7 @@ app.post('/api/auth/verify-2fa', authLimiter, async (req, res) => {
                 prenom: user.prenom,
                 telephone: user.telephone,
                 role: user.role,
+                ville: userVille,
                 twoFaEnabled: user.two_fa_enabled === 1
             }
         });
@@ -615,6 +674,19 @@ app.post('/api/auth/enable-2fa', authenticateToken, async (req, res) => {
 // =====================
 // ROUTES - ALERTS
 // =====================
+
+// Get supported cities
+app.get('/api/cities', async (req, res) => {
+    try {
+        res.json(VALID_CITIES.map(key => ({
+            nom: key,
+            latitude: CITIES[key].lat,
+            longitude: CITIES[key].lng
+        })));
+    } catch (error) {
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
 
 // Get emergency types
 app.get('/api/emergency-types', async (req, res) => {
@@ -695,7 +767,7 @@ app.delete('/api/emergency-types/:id', authenticateToken, requireAdmin, async (r
 // Create alert
 app.post('/api/alerts', authenticateToken, upload.single('photo'), async (req, res) => {
     try {
-        const { type_id, description, latitude, longitude, accuracy, address, quartier, avenue, priority } = req.body;
+        const { type_id, description, latitude, longitude, accuracy, address, quartier, avenue, priority, ville } = req.body;
         const photo = req.file ? '/uploads/profiles/' + req.file.filename : null;
 
         // Validate geolocation accuracy - must be 15 meters or less for emergency alerts
@@ -708,19 +780,27 @@ app.post('/api/alerts', authenticateToken, upload.single('photo'), async (req, r
             console.warn(`Warning: Alert submitted with low accuracy: ${accuracy}m`);
         }
 
-        // Validate coordinates are within reasonable bounds (Goma, RDC area)
+        // Validate coordinates within a supported city (Goma, Kinshasa)
         const lat = parseFloat(latitude);
         const lng = parseFloat(longitude);
-        
-        // Goma, DRC bounds: approximately -1.5 to -2.0 latitude, 29.0 to 29.5 longitude
-        if (lat < -2.5 || lat > -1.0 || lng < 28.5 || lng > 30.0) {
-            return res.status(400).json({ error: 'Position invalide. Vous semblez etre hors de la zone de Goma.' });
+
+        if (isNaN(lat) || isNaN(lng)) {
+            return res.status(400).json({ error: 'Position invalide' });
+        }
+
+        // La ville est deduite de la position si absente, sinon depuis le profil
+        const detectedCity = getCityFromPosition(lat, lng);
+        const alertCity = detectedCity || normalizeCity(ville || req.user.ville);
+
+        if (!isPositionInCity(lat, lng, alertCity)) {
+            const zones = VALID_CITIES.map(c => CITIES[c].nom).join(' ou ');
+            return res.status(400).json({ error: `Position invalide. Vous semblez etre hors de la zone de ${zones}.` });
         }
 
         const insertResult = await pool.query(
-            `INSERT INTO alerts (user_id, type_id, description, latitude, longitude, accuracy, address, quartier, avenue, photo, priority)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
-            [req.user.id, type_id, description, latitude, longitude, accuracy, address, quartier, avenue, photo, priority || 3]
+            `INSERT INTO alerts (user_id, type_id, description, latitude, longitude, accuracy, address, quartier, avenue, photo, priority, ville)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
+            [req.user.id, type_id, description, latitude, longitude, accuracy, address, quartier, avenue, photo, priority || 3, alertCity]
         );
 
         const alertId = insertResult.rows[0].id;
@@ -1089,9 +1169,9 @@ app.get('/api/chat/messages/:userId', authenticateToken, requireAdminOrSecurityC
 // Get all alerts (admin and security center)
 app.get('/api/alerts', authenticateToken, requireAdminOrSecurityCenter, async (req, res) => {
     try {
-        const { status, priority, quartier } = req.query;
+        const { status, priority, quartier, ville } = req.query;
         
-        let query = `SELECT a.*, u.nom, u.prenom, u.telephone, et.nom as type_nom, et.icone, et.couleur, agent.role as assigned_role
+        let query = `SELECT a.*, u.nom, u.prenom, u.telephone, u.ville as user_ville, et.nom as type_nom, et.icone, et.couleur, agent.role as assigned_role
                      FROM alerts a
                      JOIN users u ON a.user_id = u.id
                      JOIN emergency_types et ON a.type_id = et.id
@@ -1114,6 +1194,11 @@ app.get('/api/alerts', authenticateToken, requireAdminOrSecurityCenter, async (r
         if (quartier) {
             query += ` AND a.quartier = ${paramIndex}`;
             params.push(quartier);
+            paramIndex++;
+        }
+        if (ville) {
+            query += ` AND a.ville = ${paramIndex}`;
+            params.push(normalizeCity(ville));
             paramIndex++;
         }
         
@@ -1396,7 +1481,7 @@ app.put('/api/chat/messages/read', authenticateToken, async (req, res) => {
 app.get('/api/user/profile', authenticateToken, async (req, res) => {
     try {
         const result = await pool.query(
-            'SELECT id, nom, prenom, telephone, email, role, quartier, avenue, latitude, longitude, photo_profil, two_fa_enabled, created_at FROM users WHERE id = $1',
+            'SELECT id, nom, prenom, telephone, email, role, quartier, avenue, latitude, longitude, photo_profil, two_fa_enabled, ville, created_at FROM users WHERE id = $1',
             [req.user.id]
         );
         const user = result.rows[0];
@@ -1424,15 +1509,16 @@ app.get('/api/user/role', authenticateToken, async (req, res) => {
 
 app.put('/api/user/profile', authenticateToken, upload.single('photo'), async (req, res) => {
     try {
-        const { nom, prenom, email, quartier, avenue, latitude, longitude } = req.body;
+        const { nom, prenom, email, quartier, avenue, latitude, longitude, ville } = req.body;
         const photo_profil = req.file ? '/uploads/profiles/' + req.file.filename : req.body.existing_photo;
+        const userVille = normalizeCity(ville);
 
         await pool.query(
-            `UPDATE users SET nom = $1, prenom = $2, email = $3, quartier = $4, avenue = $5, latitude = $6, longitude = $7, photo_profil = $8
-             WHERE id = $9`,
-            [nom, prenom, email, quartier, avenue, latitude, longitude, photo_profil, req.user.id]
+            `UPDATE users SET nom = $1, prenom = $2, email = $3, quartier = $4, avenue = $5, latitude = $6, longitude = $7, photo_profil = $8, ville = $9
+             WHERE id = $10`,
+            [nom, prenom, email, quartier, avenue, latitude, longitude, photo_profil, userVille, req.user.id]
         );
-        res.json({ message: 'Profil mis a jour' });
+        res.json({ message: 'Profil mis a jour', ville: userVille });
     } catch (error) {
         res.status(500).json({ error: 'Erreur lors de la mise a jour' });
     }
