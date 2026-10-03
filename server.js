@@ -1529,6 +1529,72 @@ app.put('/api/user/profile', authenticateToken, upload.single('photo'), async (r
 // =====================
 
 const calls = new Map();
+// ICE candidates that arrive before the call is registered (WebRTC trickle)
+const pendingIceCandidates = new Map();
+
+function findCall(data = {}) {
+    if (data.callId && calls.has(data.callId)) {
+        return calls.get(data.callId);
+    }
+    if (data.callerId && calls.has(data.callerId)) {
+        return calls.get(data.callerId);
+    }
+    if (data.callerId) {
+        for (const entry of calls.values()) {
+            if (entry.callerId === data.callerId) return entry;
+        }
+    }
+    return null;
+}
+
+function registerCall(callEntry) {
+    calls.set(callEntry.callId, callEntry);
+    if (callEntry.callerId) {
+        calls.set(callEntry.callerId, callEntry);
+    }
+}
+
+function deleteCall(callEntry) {
+    if (!callEntry) return;
+    calls.delete(callEntry.callId);
+    if (callEntry.callerId) {
+        calls.delete(callEntry.callerId);
+    }
+    pendingIceCandidates.delete(callEntry.callId);
+    if (callEntry.callerId) {
+        pendingIceCandidates.delete(callEntry.callerId);
+    }
+}
+
+function flushPendingIce(callEntry) {
+    if (!callEntry) return;
+    const keys = [callEntry.callId, callEntry.callerId].filter(Boolean);
+    const queued = [];
+    for (const key of keys) {
+        const items = pendingIceCandidates.get(key);
+        if (items) {
+            queued.push(...items);
+            pendingIceCandidates.delete(key);
+        }
+    }
+    for (const item of queued) {
+        if (item.target === 'citizen') {
+            const callerSocket = io.sockets.sockets.get(callEntry.socketId);
+            if (callerSocket) {
+                callerSocket.emit('webrtc-ice-candidate', {
+                    callId: callEntry.callId,
+                    candidate: item.candidate
+                });
+            }
+        } else {
+            io.to('security-center').emit('webrtc-ice-candidate', {
+                callId: callEntry.callId,
+                callerId: callEntry.callerId,
+                candidate: item.candidate
+            });
+        }
+    }
+}
 
 io.on('connection', (socket) => {
     console.log('Client connecte:', socket.id);
@@ -1555,11 +1621,13 @@ io.on('connection', (socket) => {
             callId,
             data: { ...data, callId }
         };
-        calls.set(callId, callEntry);
+        registerCall(callEntry);
         console.log('Citizen calling security center:', callEntry);
 
         io.to('security-center').emit('citizen-call', { ...data, callId });
         io.emit('citizen-call', { ...data, callId });
+
+        flushPendingIce(callEntry);
 
         if (data.webrtcOffer) {
             io.to('security-center').emit('webrtc-offer', {
@@ -1572,8 +1640,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('admin-answer-call', async (data) => {
-        const callId = data.callId || data.callerId;
-        const callInfo = calls.get(callId) || calls.get(data.callerId);
+        const callInfo = findCall(data);
         if (callInfo) {
             const callerSocket = io.sockets.sockets.get(callInfo.socketId);
             if (callerSocket) {
@@ -1593,39 +1660,42 @@ io.on('connection', (socket) => {
     });
 
     socket.on('reject-call', (data) => {
-        const callId = data.callId || data.callerId;
-        const callInfo = calls.get(callId) || calls.get(data.callerId);
+        const callInfo = findCall(data);
         if (callInfo) {
             const callerSocket = io.sockets.sockets.get(callInfo.socketId);
             if (callerSocket) {
                 callerSocket.emit('call-rejected', { callId: callInfo.callId });
             }
-            calls.delete(callId);
-            calls.delete(callInfo.callId);
+            deleteCall(callInfo);
         }
     });
 
     socket.on('end-call', (data) => {
-        const callId = data.callId || data.callerId;
-        const callInfo = calls.get(callId) || calls.get(data.callerId);
+        const callInfo = findCall(data);
         if (callInfo) {
             const callerSocket = io.sockets.sockets.get(callInfo.socketId);
             if (callerSocket) {
                 callerSocket.emit('call-ended', { callId: callInfo.callId });
             }
-            calls.delete(callId);
-            calls.delete(callInfo.callId);
+            deleteCall(callInfo);
         }
     });
 
     socket.on('webrtc-ice-candidate', (data) => {
-        const callId = data.callId || data.callerId;
-        const callInfo = calls.get(callId) || calls.get(data.callerId);
-        if (!callInfo) return;
+        const callInfo = findCall(data);
+        if (!callInfo) {
+            const key = data.callId || data.callerId;
+            if (key) {
+                const queue = pendingIceCandidates.get(key) || [];
+                queue.push({ target: data.target, candidate: data.candidate });
+                pendingIceCandidates.set(key, queue);
+            }
+            return;
+        }
 
         if (data.target === 'security-center') {
             io.to('security-center').emit('webrtc-ice-candidate', {
-                callId,
+                callId: callInfo.callId,
                 callerId: data.callerId,
                 candidate: data.candidate
             });
@@ -1633,8 +1703,8 @@ io.on('connection', (socket) => {
             const callerSocket = io.sockets.sockets.get(callInfo.socketId);
             if (callerSocket) {
                 callerSocket.emit('webrtc-ice-candidate', {
-                    callId,
-                    callerId: data.callerId,
+                    callId: callInfo.callId,
+                    callerId: callInfo.callerId,
                     candidate: data.candidate
                 });
             }
@@ -1648,14 +1718,11 @@ io.on('connection', (socket) => {
     });
 
     socket.on('webrtc-answer', (data) => {
-        const callId = data.callId || data.callerId;
-        console.log('WebRTC answer received:', { callId, callerId: data.callerId });
-        const citizenSocketId = calls.get(callId)?.socketId || calls.get(data.callerId)?.socketId;
-        if (citizenSocketId) {
-            const citizenSocket = io.sockets.sockets.get(citizenSocketId);
-            if (citizenSocket) {
-                citizenSocket.emit('webrtc-answer', { ...data, callId });
-            }
+        const callInfo = findCall(data);
+        console.log('WebRTC answer received:', { callId: callInfo?.callId || data.callId, callerId: data.callerId });
+        const citizenSocket = callInfo ? io.sockets.sockets.get(callInfo.socketId) : null;
+        if (citizenSocket) {
+            citizenSocket.emit('webrtc-answer', { ...data, callId: callInfo.callId });
         }
     });
 
