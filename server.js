@@ -4,6 +4,8 @@
  */
 
 require('dotenv').config();
+const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -86,12 +88,17 @@ function getIceServers() {
 
 // Tester la connexion au démarrage
 async function testConnection() {
+    let client;
     try {
-        const client = await pool.connect();
+        client = await pool.connect();
         console.log('✅ Connecté à la base de données PostgreSQL');
-        client.release();
     } catch (err) {
         console.error('❌ Erreur de connexion à PostgreSQL:', err.message);
+        throw err;
+    } finally {
+        if (client) {
+            client.release();
+        }
     }
 }
 
@@ -231,11 +238,19 @@ async function initializeDatabase() {
         console.log('Base de données PostgreSQL initialisée avec succès');
     } catch (error) {
         console.error('Erreur lors de l\'initialisation de la base de données:', error.message);
+        throw error;
     }
 }
 
 // Tester la connexion et initialiser la base de données
 async function startApp() {
+    if (!process.env.DATABASE_URL) {
+        throw new Error('La variable DATABASE_URL est obligatoire.');
+    }
+    if (!JWT_SECRET || JWT_SECRET === 'votre_secret_jwt_tres_securise_ici') {
+        throw new Error('La variable JWT_SECRET doit être configurée avec un secret propre au déploiement.');
+    }
+
     await testConnection();
     await initializeDatabase();
     
@@ -259,7 +274,13 @@ async function startApp() {
     });
 }
 
-startApp();
+startApp().catch((error) => {
+    console.error('❌ Démarrage du serveur impossible:', error.message);
+    process.exitCode = 1;
+    pool.end().catch((poolError) => {
+        console.error('❌ Erreur lors de la fermeture de PostgreSQL:', poolError.message);
+    });
+});
 
 
 
@@ -433,7 +454,7 @@ const authenticateToken = (req, res, next) => {
         return res.status(401).json({ error: 'Authentification requise' });
     }
 
-    jwt.verify(token, process.env.JWT_SECRET || 'default_secret', (err, user) => {
+    jwt.verify(token, JWT_SECRET, (err, user) => {
         if (err) {
             return res.status(403).json({ error: 'Token invalide' });
         }
@@ -489,7 +510,8 @@ app.post('/api/auth/register', authLimiter, upload.single('photo'), async (req, 
         const newUser = insertResult.rows[0];
         const token = jwt.sign(
             { id: newUser.id, telephone, role: 'citoyen', ville: userVille },
-            process.env.JWT_SECRET || 'default_secret'
+            JWT_SECRET,
+            { expiresIn: JWT_EXPIRES_IN }
         );
 
         res.json({
@@ -507,10 +529,19 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     try {
         const { telephone, password } = req.body;
 
+        if (!telephone || !password) {
+            return res.status(400).json({ error: 'Telephone et mot de passe requis' });
+        }
+
         const result = await pool.query('SELECT * FROM users WHERE telephone = $1', [telephone]);
-        const user = result?.rows[0];
+        const user = result && result.rows ? result.rows[0] : null;
         if (!user) {
             return res.status(401).json({ error: 'Utilisateur non trouve' });
+        }
+
+        if (!user.password_hash) {
+            console.error('LOGIN ERROR: password_hash manquant pour l\'utilisateur', user.telephone);
+            return res.status(500).json({ error: 'Erreur serveur' });
         }
 
         const validPassword = await bcrypt.compare(password, user.password_hash);
@@ -522,7 +553,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
         if (user.two_fa_enabled === 1) {
             const tempToken = jwt.sign(
                 { id: user.id, telephone: user.telephone, temp: true },
-                process.env.JWT_SECRET || 'default_secret',
+                JWT_SECRET,
                 { expiresIn: '5m' }
             );
             return res.json({ requires2FA: true, tempToken });
@@ -531,7 +562,8 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
         const userVille = normalizeCity(user.ville);
         const token = jwt.sign(
             { id: user.id, telephone: user.telephone, role: user.role, ville: userVille },
-            process.env.JWT_SECRET || 'default_secret'
+            JWT_SECRET,
+            { expiresIn: JWT_EXPIRES_IN }
         );
 
         res.json({
@@ -549,6 +581,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
             }
         });
     } catch (error) {
+        console.error('LOGIN ERROR:', error);
         res.status(500).json({ error: 'Erreur serveur' });
     }
 });
@@ -558,13 +591,13 @@ app.post('/api/auth/verify-2fa', authLimiter, async (req, res) => {
     try {
         const { tempToken, code } = req.body;
 
-        const decoded = jwt.verify(tempToken, process.env.JWT_SECRET || 'default_secret');
+        const decoded = jwt.verify(tempToken, JWT_SECRET);
         if (!decoded.temp) {
             return res.status(401).json({ error: 'Token invalide ou expire' });
         }
 
         const result = await pool.query('SELECT * FROM users WHERE id = $1', [decoded.id]);
-        const user = result?.rows[0];
+        const user = result && result.rows ? result.rows[0] : null;
         if (!user) {
             return res.status(401).json({ error: 'Utilisateur non trouve' });
         }
@@ -583,7 +616,8 @@ app.post('/api/auth/verify-2fa', authLimiter, async (req, res) => {
         const userVille = normalizeCity(user.ville);
         const token = jwt.sign(
             { id: user.id, telephone: user.telephone, role: user.role, ville: userVille },
-            process.env.JWT_SECRET || 'default_secret'
+            JWT_SECRET,
+            { expiresIn: JWT_EXPIRES_IN }
         );
 
         res.json({
@@ -601,6 +635,7 @@ app.post('/api/auth/verify-2fa', authLimiter, async (req, res) => {
             }
         });
     } catch (error) {
+        console.error('VERIFY-2FA ERROR:', error);
         res.status(500).json({ error: 'Erreur serveur' });
     }
 });
@@ -1182,22 +1217,22 @@ app.get('/api/alerts', authenticateToken, requireAdminOrSecurityCenter, async (r
         let paramIndex = 1;
         
         if (status) {
-            query += ` AND a.status = ${paramIndex}`;
+            query += ` AND a.status = $${paramIndex}`;
             params.push(status);
             paramIndex++;
         }
         if (priority) {
-            query += ` AND a.priority <= ${paramIndex}`;
+            query += ` AND a.priority <= $${paramIndex}`;
             params.push(priority);
             paramIndex++;
         }
         if (quartier) {
-            query += ` AND a.quartier = ${paramIndex}`;
+            query += ` AND a.quartier = $${paramIndex}`;
             params.push(quartier);
             paramIndex++;
         }
         if (ville) {
-            query += ` AND a.ville = ${paramIndex}`;
+            query += ` AND a.ville = $${paramIndex}`;
             params.push(normalizeCity(ville));
             paramIndex++;
         }
@@ -2030,7 +2065,8 @@ app.put('/api/users/:id', authenticateToken, requireAdmin, async (req, res) => {
         if (req.user.id == userId) {
             newToken = jwt.sign(
                 { id: user.id, telephone: user.telephone, role: user.role },
-                process.env.JWT_SECRET || 'default_secret'
+                JWT_SECRET,
+                { expiresIn: JWT_EXPIRES_IN }
             );
         }
 

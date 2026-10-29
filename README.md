@@ -69,6 +69,8 @@ VAPID_EMAIL=mailto:votre@email.com
 CORS_ORIGIN=*
 ```
 
+`DATABASE_URL` doit pointer vers la base PostgreSQL utilisée par le service. `JWT_SECRET` doit être un secret unique et aléatoire (par exemple, généré avec `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`). Configurez ces deux variables dans l'environnement de déploiement, sans les commiter. Le serveur refuse maintenant de démarrer si elles sont absentes ou si la connexion ou l'initialisation de la base échoue ; vérifiez alors les journaux du service et l'accès réseau à PostgreSQL.
+
 ## Lancement
 
 ```bash
