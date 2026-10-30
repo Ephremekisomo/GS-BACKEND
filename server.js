@@ -406,6 +406,15 @@ const CITIES = {
         maxLat: -3.8,
         minLng: 14.8,
         maxLng: 16.1
+    },
+    'Beni': {
+        nom: 'Beni',
+        lat: 0.491130,
+        lng: 29.473060,
+        minLat: 0.35,
+        maxLat: 0.65,
+        minLng: 29.35,
+        maxLng: 29.65
     }
 };
 
